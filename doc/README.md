@@ -66,7 +66,7 @@ depender del tamaño del video. Esa es la pieza diferencial del diseño, y está
 
 | Capa | Elección | Por qué |
 |------|----------|---------|
-| Frontend | **Next.js 15 (App Router) + React 19 + TypeScript strict** en Vercel | Ya lo pagas; RSC reduce JS en cliente; streaming nativo para el resumen |
+| Frontend | **Next.js 16 (App Router) + React 19 + TypeScript strict** en Vercel | Ya lo pagas; RSC reduce JS en cliente; streaming nativo para el resumen |
 | Procesamiento de media | **WebCodecs + Mediabunny** en Web Workers | 7-10× más rápido que `ffmpeg.wasm`, acelerado por hardware, 0 infra |
 | Subida | **TUS resumible** contra Supabase Storage, directo desde el navegador | Reanudable, hasta 50 GB, nunca pasa por nuestro servidor |
 | Auth + DB | **Supabase Auth + Postgres con RLS** | Autorización en SQL, no dispersa en código |

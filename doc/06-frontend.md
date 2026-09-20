@@ -10,7 +10,7 @@
 
 | Capa | Elección | Justificación |
 |---|---|---|
-| Framework | **Next.js 15 · App Router** | Ya pagas Vercel. RSC reduce el JS enviado; streaming nativo de UI |
+| Framework | **Next.js 16 · App Router** | Ya pagas Vercel. RSC reduce el JS enviado; streaming nativo de UI |
 | UI | **React 19 + React Compiler** | Memoización automática: menos `useMemo` manual y menos errores de dependencias |
 | Lenguaje | **TypeScript strict** + `noUncheckedIndexedAccess` | Un pipeline de media tiene muchos estados; el compilador debe cubrirlos |
 | Estilos | **Tailwind CSS v4 + shadcn/ui (Radix)** | Accesibilidad correcta de serie; sin runtime CSS-in-JS |

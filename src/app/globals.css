@@ -1,0 +1,51 @@
+@import 'tailwindcss';
+
+:root {
+  --background: #ffffff;
+  --foreground: #14161a;
+  --surface: #f6f7f9;
+  --border: #e3e6ea;
+  --muted: #646b76;
+  --accent: #2f6fed;
+  --success: #12805c;
+  --warning: #9a6300;
+  --danger: #c0362c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0d10;
+    --foreground: #e8eaed;
+    --surface: #14171c;
+    --border: #262b33;
+    --muted: #949ba7;
+    --accent: #6f9bff;
+    --success: #3ecf8e;
+    --warning: #e0a52b;
+    --danger: #ff6b5e;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Las cifras de medición se leen mucho mejor con anchos de dígito iguales. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

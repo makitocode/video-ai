@@ -13,7 +13,7 @@ de construir producto encima de ella.
 **Objetivo:** que el esqueleto esté bien puesto. Es la fase que nadie quiere hacer y la que
 evita reescribir todo en el mes 4.
 
-- Monorepo: Next.js 15 + TypeScript `strict` + ESLint + Prettier.
+- Monorepo: Next.js 16 + TypeScript `strict` + ESLint + Prettier.
 - Proyecto Supabase, migraciones versionadas en el repo (nada de cambios por la UI).
 - Esquema inicial + **RLS en todas las tablas desde la primera migración**.
 - Supabase Auth + rutas protegidas.

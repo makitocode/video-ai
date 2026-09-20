@@ -16,6 +16,7 @@ a partir de un archivo subido por el usuario (potencialmente de varios GB), prod
 
 | # | Documento | Qué responde |
 |---|-----------|--------------|
+| 00 | [Glosario](./00-glosario.md) | **Empieza aquí.** Qué es ASR, diarización y LLM, y por qué son capas distintas |
 | 01 | [Visión y alcance](./01-vision-y-alcance.md) | Qué construimos, qué **no**, y cómo medimos el éxito |
 | 02 | [ADR-001: ¿Backend propio o Supabase?](./02-adr-backend-serverless.md) | **La decisión central.** Por qué no montamos infra |
 | 03 | [Arquitectura del sistema](./03-arquitectura-sistema.md) | Diagramas, componentes y flujos |
@@ -70,10 +71,24 @@ depender del tamaño del video. Esa es la pieza diferencial del diseño, y está
 | Subida | **TUS resumible** contra Supabase Storage, directo desde el navegador | Reanudable, hasta 50 GB, nunca pasa por nuestro servidor |
 | Auth + DB | **Supabase Auth + Postgres con RLS** | Autorización en SQL, no dispersa en código |
 | Orquestación | **Edge Functions + pgmq + pg_cron + Realtime** | Cola, reintentos y progreso en vivo sin servidores |
-| Transcripción | **AssemblyAI** (o ElevenLabs Scribe v2) | Idioma automático + diarización de calidad, vía webhook |
-| Resumen | **Claude** vía AI SDK, con streaming | Contexto largo, citas temporales verificables |
+| Transcripción + diarización | **AssemblyAI** (decisión reversible por diseño) | Idioma automático + diarización de calidad, vía webhook. Alternativas y coste real en [05](./05-pipeline-analisis.md) |
+| Resumen, capítulos, citas | **Claude** vía AI SDK, con streaming | Contexto largo, citas temporales verificables |
 
-### 4. Lo que vamos a decir "no" (por ahora)
+### 4. Dos motores distintos: uno que oye y otro que entiende
+
+Claude **no acepta audio como entrada**, así que no puede generar el transcript. Y la
+diarización ("quién habla") tampoco se puede deducir del texto: la identidad vocal vive en la
+señal de audio, no en las palabras. Por eso el pipeline tiene dos capas:
+
+- 🎧 **ASR + diarización** (sobre el audio) → una API gestionada, ~0,17-0,23 USD/hora.
+- 🧠 **LLM** (sobre el texto ya transcrito) → **Claude**: resumen con citas verificadas,
+  capítulos, sugerencia de nombres reales de hablante.
+
+Si esto suena confuso, el [glosario](./00-glosario.md) lo desarrolla. La comparativa completa de
+proveedores — incluidas las opciones de código abierto y por qué "gratis en GitHub" no significa
+"sin coste" — está en [05-pipeline-analisis.md](./05-pipeline-analisis.md).
+
+### 5. Lo que vamos a decir "no" (por ahora)
 
 - Transcodificar en nuestros servidores (ffmpeg en el backend). No hace falta.
 - Análisis visual del video (escenas, OCR de slides, caras). Fase 5, y aún así sin infra propia.

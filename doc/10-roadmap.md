@@ -157,8 +157,16 @@ a ser requisito de negocio.
 Cosas que **no** deben decidirse ahora, y cuándo decidirlas:
 
 1. **¿Se conserva el master por defecto?** → decidir en la Fase 2, con datos de coste reales.
-2. **¿AssemblyAI o ElevenLabs Scribe como principal?** → decidir en la Fase 3, comparando ambos
-   sobre el mismo corpus de referencia. No por precio de tarifa, sino por calidad de diarización.
+2. **¿Qué proveedor de ASR?** → decidir en la Fase 3 sobre un corpus de 10-15 grabaciones
+   reales, comparando **cpWER** (precisión de palabra *y* de atribución), no la tarifa. La
+   interfaz `TranscriptionProvider` hace la decisión reversible, así que no bloquea nada.
+   Candidatos y economía real (incluidos modelos abiertos y GPU serverless) en
+   [05](./05-pipeline-analisis.md#comparativa-de-opciones-todas-las-rutas-reales).
+3. **¿Merece la pena WhisperX + pyannote propio?** → **no antes de la Fase 5**, y sólo si el
+   volumen justifica un GPU permanentemente ocupado. A 0,20 USD/hora, mil horas procesadas son
+   200 USD: no es el problema del primer año, y montarlo reabre el [ADR-001](./02-adr-backend-serverless.md).
+4. **¿Modo gratuito con Whisper en el navegador?** → evaluar en la Fase 5 si hace falta un plan
+   free. Coste cero real, pero sin diarización y con menor precisión.
 3. **¿Transcripción progresiva para vista previa en vivo?** → solo si en la Fase 3 el tiempo de
    espera resulta ser un problema real de UX medido, no supuesto.
 4. **¿Modelo de precios?** → Fase 5, con datos de `usage_ledger`.

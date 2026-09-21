@@ -105,7 +105,7 @@ async function identifySpeakersStage(assetId: string): Promise<void> {
 
   transition(assetId, 'identifying_speakers', 0);
 
-  const provider = getAnalysisPort();
+  const provider = await getAnalysisPort();
   const { payload: identification, usage: identifyUsage } = await provider.identifySpeakers({
     anchoredTranscript: buildAnchored(transcript),
     speakers: transcript.speakers.map((speaker) => ({
@@ -157,7 +157,7 @@ async function analyzeStage(assetId: string, durationMs: number): Promise<void> 
 
   transition(assetId, 'summarizing', 0);
 
-  const provider = getAnalysisPort();
+  const provider = await getAnalysisPort();
   const { payload, usage: analyzeUsage } = await provider.analyze({
     anchoredTranscript: buildAnchored(transcript),
     languageCode: transcript.languageCode,

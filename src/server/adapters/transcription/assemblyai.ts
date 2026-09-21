@@ -46,7 +46,7 @@ export type AssemblyAiOptions = {
   keyterms: readonly string[];
 };
 
-/** Cadencia de sondeo. AssemblyAI tarda en torno al 20-25 % de la duración del audio. */
+/** Cadencia de sondeo. El tope da una hora larga de margen antes de rendirse. */
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLL_ATTEMPTS = 1_200; // ~1 hora de margen
 
@@ -91,7 +91,7 @@ export class AssemblyAiTranscriptionAdapter implements TranscriptionPort {
   async transcribe(input: TranscribeInput): Promise<TranscriptionResult> {
     const audioUrl = await this.uploadAudio(input.audioStoragePath);
     const jobId = await this.submit(audioUrl);
-    const result = await this.poll(jobId, input);
+    const result = await this.poll(jobId);
 
     return this.toResult(result);
   }
@@ -146,7 +146,7 @@ export class AssemblyAiTranscriptionAdapter implements TranscriptionPort {
     return payload.id;
   }
 
-  private async poll(jobId: string, input: TranscribeInput): Promise<TranscriptResponse> {
+  private async poll(jobId: string): Promise<TranscriptResponse> {
     for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 
@@ -162,10 +162,11 @@ export class AssemblyAiTranscriptionAdapter implements TranscriptionPort {
         throw new Error(payload.error ?? 'AssemblyAI terminó el trabajo con error.');
       }
 
-      // No hay porcentaje real en la API, así que se estima contra el tiempo típico
-      // (~25 % de la duración del audio) y se corta en 0,95 para no prometer el final.
-      const expectedMs = Math.max(input.durationMs * 0.25, 30_000);
-      input.onProgress?.(Math.min(((attempt + 1) * POLL_INTERVAL_MS) / expectedMs, 0.95));
+      // AssemblyAI no informa de avance: `processing` es todo lo que dice hasta terminar.
+      // Aquí se estimaba un porcentaje dividiendo el tiempo de espera entre una duración
+      // supuesta, y sobre una grabación larga eso pintaba un 2 % con el trabajo bien avanzado.
+      // Un número inventado que parece atascado es peor que ninguno: la interfaz muestra el
+      // tiempo transcurrido, que sí es cierto.
     }
 
     throw new Error('AssemblyAI no devolvió resultado dentro del tiempo máximo de espera.');

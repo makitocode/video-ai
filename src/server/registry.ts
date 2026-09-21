@@ -40,7 +40,7 @@ export async function getAnalysisPort(): Promise<AnalysisPort> {
       () => import('./adapters/analysis/anthropic'),
       '@anthropic-ai/sdk',
     );
-    return new AnthropicAnalysisAdapter(config.anthropicKey, models);
+    return new AnthropicAnalysisAdapter(config.anthropicKey, models, config.anthropicWorkspaceId);
   }
   if (config.analysis === 'openai' && config.openAiKey !== undefined) {
     const { OpenAiAnalysisAdapter } = await load(

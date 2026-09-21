@@ -1,4 +1,5 @@
 import { buildAnchoredTranscript } from '@/lib/anchored-transcript';
+import { config } from './config';
 import type { JobState } from '@/lib/domain';
 import { publishJobStatus } from './events';
 import { getAnalysisPort, getTranscriptionPort } from './registry';
@@ -50,8 +51,7 @@ export async function runAnalysis(assetId: string, durationMs: number): Promise<
 
   try {
     await transcribeStage(assetId, durationMs);
-    await identifySpeakersStage(assetId);
-    await analyzeStage(assetId, durationMs);
+    await analysisStages(assetId, durationMs);
     transition(assetId, 'ready', 1);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Fallo desconocido en el análisis.';
@@ -94,10 +94,55 @@ async function transcribeStage(assetId: string, durationMs: number): Promise<voi
  * Deduce quién es cada hablante antes de enseñar nada.
  *
  * La diarización sólo da «Speaker A»; quién es cada uno se deduce de lo que se dice. Va en su
- * propia etapa y antes del análisis por dos motivos: el transcript no se muestra hasta que
- * está hecha —un «Speaker C» no le sirve a nadie para leer una reunión— y el análisis escribe
- * mucho mejor cuando puede nombrar a la gente.
+ * propia etapa porque es lo que retiene los nombres: el transcript ya se puede leer sin ella,
+ * pero sustituir «Speaker C» por un nombre a mitad de lectura obliga a releer.
  */
+/**
+ * Identificación de hablantes y análisis: los dos trabajos que siguen al transcript.
+ *
+ * **Son independientes.** El análisis recibe el transcript anclado con sus etiquetas
+ * (`Speaker A`), no los nombres deducidos: quién es quién se resuelve al pintar, cruzando la
+ * etiqueta con la tabla de hablantes. Encadenarlos hacía esperar la suma de los dos sin que
+ * el resumen ganara nada, así que por defecto corren a la vez y la espera es la del más lento.
+ *
+ * Lo que sí cuesta el paralelo es la caché de prompt: en serie, la segunda llamada reaprovecha
+ * el transcript al 10 % de su precio; arrancando a la vez, ninguna de las dos encuentra caché
+ * escrita todavía. Por eso `ANALYSIS_PARALLEL=false` recupera el ahorro para quien prefiera
+ * pagar menos y esperar más.
+ *
+ * El estado refleja lo que de verdad está pasando: mientras los dos corren se anuncia la
+ * identificación —es lo que retiene los nombres en pantalla—, y al resolverse pasa a resumen
+ * si el análisis sigue en curso.
+ */
+async function analysisStages(assetId: string, durationMs: number): Promise<void> {
+  transition(assetId, 'identifying_speakers', 0);
+
+  if (!config.analysisParallel) {
+    await identifySpeakersStage(assetId);
+    await analyzeStage(assetId, durationMs);
+    return;
+  }
+
+  let analyzeDone = false;
+
+  const identifying = identifySpeakersStage(assetId).then(() => {
+    // Si el análisis ya terminó, anunciar «resumiendo» sería mentir: queda ir a `ready`.
+    if (!analyzeDone) transition(assetId, 'summarizing', 0.5);
+  });
+
+  const analyzing = analyzeStage(assetId, durationMs).then(() => {
+    analyzeDone = true;
+  });
+
+  // `allSettled` y no `all`: con `all`, el primer fallo marca el job como fallido mientras la
+  // otra llamada sigue viva y escribe después en la base de datos, sobre un estado que ya dice
+  // otra cosa. Esperando a que las dos terminen, lo que se guarda es coherente con lo que se
+  // muestra, y se propaga el primer error real.
+  const results = await Promise.allSettled([identifying, analyzing]);
+  const failure = results.find((result) => result.status === 'rejected');
+  if (failure !== undefined) throw (failure as PromiseRejectedResult).reason;
+}
+
 async function identifySpeakersStage(assetId: string): Promise<void> {
   const transcript = getTranscript(assetId);
   const transcriptId = getTranscriptId(assetId);

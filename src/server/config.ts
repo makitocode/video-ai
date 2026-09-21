@@ -35,6 +35,7 @@ function splitList(raw: string | undefined): string[] {
 // y el error sería un 401 críptico en vez del aviso de proveedor simulado.
 const assemblyAiKey = process.env.ASSEMBLYAI_API_KEY?.trim() || undefined;
 const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() || undefined;
+const anthropicWorkspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim() || undefined;
 const openAiKey = process.env.OPENAI_API_KEY?.trim() || undefined;
 
 export const config = {
@@ -79,7 +80,30 @@ export const config = {
    */
   analysis: resolveAnalysisProvider(),
   anthropicKey,
+
+  /**
+   * Workspace de Anthropic al que imputar el gasto.
+   *
+   * Las claves que crea hoy la Console tienen alcance de **organización**, y con ellas la API
+   * no sabe a qué workspace cargar el gasto: responde 400 pidiendo la cabecera
+   * `anthropic-workspace-id`. Esta variable la aporta. Sólo sobra con las claves de tipo
+   * «Workspace», que ya lo llevan implícito y hoy figuran como heredadas.
+   */
+  anthropicWorkspaceId,
   openAiKey,
+
+  /**
+   * Identificar hablantes y redactar el resumen, ¿a la vez o en serie?
+   *
+   * Son dos trabajos independientes —el análisis recibe el transcript con etiquetas, no los
+   * nombres—, así que pueden correr en paralelo y la espera pasa de ser la suma a ser el más
+   * lento de los dos. El precio es la caché de prompt: en serie, la segunda llamada reaprovecha
+   * el transcript al 10 %; en paralelo las dos arrancan antes de que la caché exista y cada una
+   * paga su entrada completa.
+   *
+   * Por defecto gana el tiempo. Ponlo a `false` para recuperar el ahorro a cambio de esperar.
+   */
+  analysisParallel: process.env.ANALYSIS_PARALLEL?.trim().toLowerCase() !== 'false',
 
   /**
    * Modelo por fase.

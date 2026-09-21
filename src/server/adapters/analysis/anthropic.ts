@@ -42,8 +42,18 @@ export class AnthropicAnalysisAdapter implements AnalysisPort {
   constructor(
     apiKey: string,
     readonly models: { identify: string; analyze: string },
+    /**
+     * Workspace al que imputar el gasto. Sólo lo necesitan las claves que no pertenecen a
+     * ninguno: la API las rechaza con un 400 hasta que la cabecera viaja en la petición.
+     */
+    workspaceId?: string,
   ) {
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({
+      apiKey,
+      ...(workspaceId === undefined
+        ? {}
+        : { defaultHeaders: { 'anthropic-workspace-id': workspaceId } }),
+    });
   }
 
   async identifySpeakers(
@@ -145,6 +155,16 @@ export class AnthropicAnalysisAdapter implements AnalysisPort {
       if (error instanceof Anthropic.RateLimitError) {
         throw new Error(
           'Se alcanzó el límite de peticiones de Anthropic. Reintenta en un momento.',
+        );
+      }
+      // El 400 por workspace es el único error de configuración que la API devuelve con un
+      // texto que no dice dónde arreglarlo. Se traduce a la acción concreta.
+      if (error instanceof Anthropic.BadRequestError && error.message.includes('workspace')) {
+        throw new Error(
+          'Tu clave de Anthropic tiene alcance de organización, así que hay que decirle a qué ' +
+            'workspace imputar el gasto. Añade ANTHROPIC_WORKSPACE_ID a .env.local con el ID ' +
+            'del workspace (Console → Organization settings → Workspaces; empieza por ' +
+            '«wrkspc_») y reinicia el servidor.',
         );
       }
       if (error instanceof Anthropic.APIError) {

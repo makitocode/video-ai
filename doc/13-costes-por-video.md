@@ -89,6 +89,25 @@ ahorro que no se paga con nada.
 > propio espacio de caché. Es lo que hace que mezclar modelos rinda mucho menos de lo que
 > parece (ver la tabla siguiente).
 
+### El paralelo también cuesta la caché
+
+Identificar y analizar son independientes —el análisis recibe el transcript con etiquetas
+`Speaker A`, no los nombres—, así que por defecto corren **a la vez**: la espera pasa de ser la
+suma de las dos llamadas a ser la más lenta de las dos.
+
+Ese tiempo se paga aquí. Arrancando simultáneas, ninguna encuentra la caché escrita todavía, así
+que las dos pagan su entrada completa: se vuelve a la columna «Sin caché», **0,75 USD en vez de
+0,59 USD** en el caso de referencia.
+
+| | En serie (`ANALYSIS_PARALLEL=false`) | En paralelo (por defecto) |
+|---|---|---|
+| Coste del análisis | 0,59 USD | 0,75 USD |
+| Espera | suma de las dos llamadas | la más lenta de las dos |
+
+La elección por defecto es el tiempo, porque el transcript ya está en pantalla mientras esto
+ocurre y lo que queda por llegar es el resumen. Quien prefiera los 0,16 USD pone
+`ANALYSIS_PARALLEL="false"`.
+
 ---
 
 ## 4. Qué modelo usar en cada fase

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { formatDuration } from '@/lib/format';
 import type { JobState, MediaAssetDetail } from '@/lib/domain';
@@ -38,24 +38,28 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
     if (response.ok) setAsset((await response.json()) as MediaAssetDetail);
   }, [initial.id]);
 
-  // Cada cambio de etapa puede traer datos nuevos: el transcript aparece al terminar la
-  // transcripción y el resumen al terminar el suyo. Se recarga en ambos casos en vez de
-  // esperar a `ready`, para que el transcript sea utilizable cuanto antes.
+  // Cada cambio de etapa trae datos nuevos y se recarga en todas, no sólo al final: el
+  // transcript existe ya al entrar en `identifying_speakers`, los nombres al entrar en
+  // `summarizing` y el resumen al llegar a `ready`. Recargar en cada una es lo que hace que
+  // cada pieza aparezca en cuanto está, en vez de todas juntas al terminar.
   const status = useJobStream(initial.id, initial.job, (next) => {
-    if (next.state === 'summarizing' || next.state === 'ready') void refresh();
+    if (next.state !== 'created' && next.state !== 'uploading_audio') void refresh();
   });
 
   const durationMs = asset.durationMs ?? 0;
 
   /**
-   * El transcript se retiene hasta que termina la identificación de hablantes.
+   * El transcript se muestra en cuanto existe, sin esperar a saber quién es quién.
    *
-   * Enseñarlo con «Speaker A/B/C» y sustituirlo por los nombres un minuto después hace que
-   * la gente empiece a leer dos veces. Se espera a tenerlo completo.
+   * Antes se retenía para no obligar a releer cuando «Speaker C» se convierte en un nombre.
+   * Con grabaciones reales el cálculo sale al revés: identificar a siete personas en dos horas
+   * de audio son minutos de pantalla vacía teniendo el transcript ya guardado, y leerlo es lo
+   * primero que la gente quiere hacer. Los nombres entran solos cuando llegan, y mientras
+   * tanto la lista de hablantes dice que se están buscando — releer una etiqueta es barato;
+   * esperar sin nada delante, no.
    */
-  const speakersIdentified =
-    status.state === 'summarizing' || status.state === 'ready' || status.state === 'failed';
-  const transcript = speakersIdentified ? asset.transcript : null;
+  const transcript = asset.transcript;
+  const identifyingSpeakers = status.state === 'identifying_speakers';
 
   const activeIndex = useMemo(
     () => (transcript === null ? -1 : findActiveSegmentIndex(transcript.segments, timeMs)),
@@ -145,6 +149,9 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
 
       {status.state !== 'ready' && (
         <StageBanner
+          // La clave remonta el aviso en cada cambio de etapa, y con él el cronómetro: el
+          // tiempo que se muestra es el de la etapa en curso, no el del trabajo entero.
+          key={status.state}
           state={status.state}
           progress={status.progress}
           error={status.lastError}
@@ -174,7 +181,20 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
           )}
 
           {transcript !== null && (
-            <SpeakerList speakers={transcript.speakers} onRename={renameSpeaker} onSeek={seekTo} />
+            <div className="space-y-2">
+              {identifyingSpeakers && (
+                <p className="text-muted flex items-center gap-2 text-xs" aria-live="polite">
+                  <span className="bg-accent inline-block size-1.5 animate-pulse rounded-full" />
+                  Deduciendo quién es cada hablante; los nombres sustituirán a las etiquetas al
+                  terminar.
+                </p>
+              )}
+              <SpeakerList
+                speakers={transcript.speakers}
+                onRename={renameSpeaker}
+                onSeek={seekTo}
+              />
+            </div>
           )}
         </div>
 
@@ -198,9 +218,7 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
 
           {transcript === null ? (
             <p className="text-muted border-border rounded-lg border border-dashed p-6 text-center text-sm">
-              {status.state === 'identifying_speakers'
-                ? 'Identificando quién es quién antes de mostrar la transcripción…'
-                : 'La transcripción aparecerá aquí en cuanto termine.'}
+              La transcripción aparecerá aquí en cuanto termine.
             </p>
           ) : (
             <TranscriptPanel
@@ -226,6 +244,24 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
   );
 }
 
+/**
+ * Segundos transcurridos desde que se montó el componente.
+ *
+ * El reinicio no se hace aquí sino remontando con `key`: así no hay que escribir estado
+ * dentro de un efecto, que es justo el patrón que provoca renders en cascada.
+ */
+function useElapsedSeconds(): number {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const id = setInterval(() => setSeconds(Math.round((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return seconds;
+}
+
 function StageBanner({
   state,
   progress,
@@ -238,6 +274,17 @@ function StageBanner({
   onRetry?: () => void;
 }) {
   const failed = state === 'failed';
+  const elapsed = useElapsedSeconds();
+
+  /**
+   * Hay etapas cuyo avance nadie conoce.
+   *
+   * Ni AssemblyAI ni el modelo de análisis informan de por dónde van: sólo se sabe cuándo
+   * terminan. El porcentaje que se pintaba era una regla de tres sobre una duración supuesta,
+   * y en una grabación de dos horas se arrastraba por el 2 % mientras el trabajo iba por la
+   * mitad — parecía atascado. Un cronómetro no promete nada que no pueda cumplir.
+   */
+  const indeterminate = !failed && state !== 'uploading_audio';
 
   return (
     <div
@@ -250,7 +297,11 @@ function StageBanner({
     >
       <div className="flex items-center justify-between gap-4">
         <span className="font-medium">{STAGE_LABEL[state]}</span>
-        {!failed && <span className="tabular text-muted">{Math.round(progress * 100)}%</span>}
+        {!failed && (
+          <span className="tabular text-muted">
+            {indeterminate ? formatDuration(elapsed) : `${Math.round(progress * 100)}%`}
+          </span>
+        )}
       </div>
 
       {failed && error !== null && <p className="mt-1">{error}</p>}
@@ -275,8 +326,11 @@ function StageBanner({
       {!failed && (
         <div className="border-border mt-2 h-1.5 overflow-hidden rounded-full border">
           <div
-            className="bg-accent h-full transition-[width] duration-300"
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            className={cn(
+              'bg-accent h-full',
+              indeterminate ? 'w-full animate-pulse' : 'transition-[width] duration-300',
+            )}
+            style={indeterminate ? undefined : { width: `${Math.round(progress * 100)}%` }}
           />
         </div>
       )}

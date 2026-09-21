@@ -344,7 +344,8 @@ export function getTranscript(assetId: string): Transcript | null {
   const db = getDb();
   const transcript = db
     .prepare(
-      `select id, language_code, language_confidence, provider, model_version, word_count
+      `select id, language_code, language_confidence, provider, model_version, word_count,
+              speakers_identified_at
          from transcripts where media_asset_id = ?`,
     )
     .get(assetId) as
@@ -355,6 +356,7 @@ export function getTranscript(assetId: string): Transcript | null {
         provider: string;
         model_version: string | null;
         word_count: number | null;
+        speakers_identified_at: string | null;
       }
     | undefined;
 
@@ -381,6 +383,7 @@ export function getTranscript(assetId: string): Transcript | null {
     provider: transcript.provider,
     modelVersion: transcript.model_version,
     wordCount: transcript.word_count,
+    speakersIdentifiedAt: transcript.speakers_identified_at,
     speakers: speakers.map(toSpeaker),
     segments: segments.map((row): TranscriptSegment => ({
       id: row.id,
@@ -442,6 +445,12 @@ export function applyIdentifiedSpeakers(
         speaker.label,
       );
     }
+
+    // La marca va dentro de la misma transacción: o consta que la identificación se hizo y
+    // están sus resultados, o no consta ninguna de las dos cosas.
+    db.prepare("update transcripts set speakers_identified_at = datetime('now') where id = ?").run(
+      transcriptId,
+    );
   })();
 }
 

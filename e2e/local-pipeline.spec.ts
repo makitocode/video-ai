@@ -10,6 +10,23 @@ import { createWavFixture } from './fixtures';
  * llega al servidor, el pipeline lo procesa, el progreso viaja por SSE, y el resumen cita
  * momentos que existen de verdad en el transcript.
  */
+/**
+ * Pide las dos fases de modelo, en orden.
+ *
+ * Ya no se encadenan solas: cuestan dinero, así que se piden. El test recorre el mismo camino
+ * que una persona —pulsar, esperar a que el panel ofrezca lo siguiente— en vez de llamar a la
+ * API por detrás, que es lo que dejaría de cubrir el botón.
+ */
+async function runModelPhases(page: import('@playwright/test').Page): Promise<void> {
+  const identify = page.getByRole('button', { name: 'Identificar a los participantes' });
+  await expect(identify).toBeVisible({ timeout: 60_000 });
+  await identify.click();
+
+  const summarize = page.getByRole('button', { name: 'Generar el informe' });
+  await expect(summarize).toBeVisible({ timeout: 90_000 });
+  await summarize.click();
+}
+
 test.describe('pipeline local', () => {
   test('de un archivo a transcript diarizado y resumen navegable', async ({ page }) => {
     const fixture = createWavFixture({ seconds: 90 });
@@ -39,6 +56,9 @@ test.describe('pipeline local', () => {
     await expect(speakerList.getByRole('button', { name: 'María', exact: true })).toBeVisible();
     // El transcript resuelve el nombre por referencia, así que cambia sin recargar nada.
     await expect(transcript.getByText('María').first()).toBeVisible();
+
+    // --- Las fases de modelo se piden; no llegan solas ---
+    await runModelPhases(page);
 
     // --- Resumen con citas verificadas ---
     await expect(page.getByText('Puntos clave')).toBeVisible({ timeout: 90_000 });
@@ -121,6 +141,9 @@ test.describe('pipeline local', () => {
     expect(vttBody).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3} --> /);
 
     // --- Markdown, con el resumen incluido ---
+    // El informe hay que pedirlo: las exportaciones anteriores ya funcionaban sin él, que es
+    // justo lo que se quiere — el transcript se descarga sin pagar ninguna llamada al modelo.
+    await runModelPhases(page);
     await expect(page.getByText('Puntos clave')).toBeVisible({ timeout: 90_000 });
     const md = await page.request.get(`/api/media/${assetId}/export?format=md`);
     expect(md.ok()).toBe(true);

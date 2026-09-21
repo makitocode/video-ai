@@ -89,24 +89,22 @@ ahorro que no se paga con nada.
 > propio espacio de caché. Es lo que hace que mezclar modelos rinda mucho menos de lo que
 > parece (ver la tabla siguiente).
 
-### El paralelo también cuesta la caché
+### Las fases se piden, no se encadenan
 
-Identificar y analizar son independientes —el análisis recibe el transcript con etiquetas
-`Speaker A`, no los nombres—, así que por defecto corren **a la vez**: la espera pasa de ser la
-suma de las dos llamadas a ser la más lenta de las dos.
+Identificar y analizar no arrancan solas: cada una tiene su botón. Son las dos que llaman a un
+modelo, y encadenarlas hacía pagar las dos siempre —incluso cuando sólo hacía falta el texto, y
+otra vez entera cada vez que se reintentaba por un fallo en la segunda.
 
-Ese tiempo se paga aquí. Arrancando simultáneas, ninguna encuentra la caché escrita todavía, así
-que las dos pagan su entrada completa: se vuelve a la columna «Sin caché», **0,75 USD en vez de
-0,59 USD** en el caso de referencia.
+Pedirlas por separado tiene además un efecto favorable sobre el coste: al pulsarlas en orden,
+la segunda encuentra el transcript ya en caché y lo lee al 10 %. Es la columna «Con caché» de
+la tabla de arriba, sin tener que renunciar a nada.
 
-| | En serie (`ANALYSIS_PARALLEL=false`) | En paralelo (por defecto) |
+| | Encadenado | A demanda (actual) |
 |---|---|---|
-| Coste del análisis | 0,59 USD | 0,75 USD |
-| Espera | suma de las dos llamadas | la más lenta de las dos |
-
-La elección por defecto es el tiempo, porque el transcript ya está en pantalla mientras esto
-ocurre y lo que queda por llegar es el resumen. Quien prefiera los 0,16 USD pone
-`ANALYSIS_PARALLEL="false"`.
+| Sólo quiero el transcript | 0,59 USD | **0 USD** |
+| Transcript + nombres | 0,59 USD | ~0,36 USD |
+| Todo | 0,59 USD | 0,59 USD |
+| Reintentar un informe fallido | 0,59 USD | ~0,23 USD |
 
 ---
 

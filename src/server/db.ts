@@ -203,6 +203,10 @@ function migrate(db: Database.Database): void {
     // Con qué redacción de los prompts se produjo el resumen. Sin esto, comparar dos
     // resultados de la misma grabación es una opinión.
     ['summaries', 'prompt_stamp', "text not null default ''"],
+    // Cuándo se identificó a los hablantes. Es una marca aparte y no se deduce de que algún
+    // hablante tenga nombre: una identificación honesta puede terminar sin ponerle nombre a
+    // nadie, y eso no es lo mismo que no haberla hecho nunca.
+    ['transcripts', 'speakers_identified_at', 'text'],
   ] as const;
 
   for (const [table, column, definition] of columns) {

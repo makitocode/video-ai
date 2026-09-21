@@ -42,6 +42,7 @@ const transcript: Transcript = {
   languageConfidence: 0.99,
   provider: 'mock',
   modelVersion: null,
+  speakersIdentifiedAt: '2026-09-21 10:00:00',
   wordCount: 12,
   speakers: [speaker('sp-a', 'Speaker A', 'María'), speaker('sp-b', 'Speaker B')],
   segments: [

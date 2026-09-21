@@ -68,6 +68,14 @@ export type Transcript = {
   provider: string;
   modelVersion: string | null;
   wordCount: number | null;
+  /**
+   * Cuándo se dedujo quién es quién, o `null` si todavía no se ha pedido.
+   *
+   * No se deduce de que algún hablante tenga nombre: una identificación honesta puede terminar
+   * sin nombrar a nadie —«Speaker C» con confianza baja es un resultado legítimo— y eso no es
+   * lo mismo que no haberla ejecutado.
+   */
+  speakersIdentifiedAt: string | null;
   speakers: Speaker[];
   segments: TranscriptSegment[];
 };

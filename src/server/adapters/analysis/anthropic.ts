@@ -91,30 +91,39 @@ export class AnthropicAnalysisAdapter implements AnalysisPort {
     what: string;
   }): Promise<AnalysisResult<T>> {
     try {
-      const response = await this.client.messages.parse({
-        model: options.model,
-        max_tokens: options.maxTokens,
-        // System idéntico en las dos fases: es requisito para que el prefijo cacheado
-        // sobreviva de una llamada a la otra.
-        system: systemPrompt(),
-        thinking: { type: 'adaptive' },
-        output_config: { effort: 'high', format: zodOutputFormat(options.schema) },
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `<transcript>\n${options.transcript}\n</transcript>`,
-                // El corte va justo después del transcript: lo anterior se reutiliza entre
-                // fases, y la instrucción concreta, que sí cambia, queda fuera.
-                cache_control: { type: 'ephemeral' },
-              },
-              { type: 'text', text: options.task },
-            ],
-          },
-        ],
-      });
+      // **Streaming obligatorio.** El SDK estima cuánto puede tardar una llamada
+      // (60 min × max_tokens / 128.000) y se niega a hacerla sin streaming si pasa de diez
+      // minutos. Con los 32.000 tokens que pide el informe eso da 15 minutos, así que la
+      // llamada ni siquiera salía. No es una optimización: es la única forma de pedir una
+      // respuesta larga.
+      const response = await this.client.messages
+        .stream({
+          model: options.model,
+          max_tokens: options.maxTokens,
+          // System idéntico en las dos fases: es requisito para que el prefijo cacheado
+          // sobreviva de una llamada a la otra.
+          system: systemPrompt(),
+          thinking: { type: 'adaptive' },
+          output_config: { effort: 'high', format: zodOutputFormat(options.schema) },
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `<transcript>\n${options.transcript}\n</transcript>`,
+                  // El corte va justo después del transcript: lo anterior se reutiliza entre
+                  // fases, y la instrucción concreta, que sí cambia, queda fuera.
+                  cache_control: { type: 'ephemeral' },
+                },
+                { type: 'text', text: options.task },
+              ],
+            },
+          ],
+        })
+        // La salida estructurada se sigue validando igual: `finalMessage` devuelve el mensaje
+        // ya parseado contra el esquema cuando se pidió con `output_config.format`.
+        .finalMessage();
 
       if (response.stop_reason === 'refusal') {
         throw new Error(

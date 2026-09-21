@@ -1,5 +1,4 @@
 import { buildAnchoredTranscript } from '@/lib/anchored-transcript';
-import { config } from './config';
 import type { JobState } from '@/lib/domain';
 import { publishJobStatus } from './events';
 import { getAnalysisPort, getTranscriptionPort } from './registry';
@@ -39,19 +38,28 @@ export function isRunning(assetId: string): boolean {
 }
 
 /**
- * Ejecuta el análisis completo: transcripción con diarización y después resumen.
+ * Las tres fases son trabajos separados que se piden por separado.
  *
- * El resumen depende del transcript, así que van en serie. Si el resumen falla, el transcript
- * ya está guardado y sigue siendo utilizable: el estado refleja esa diferencia en vez de
- * tirar todo el trabajo.
+ * Encadenarlas automáticamente tenía dos costes que no compensaban. El primero es la espera:
+ * el transcript está listo en cuanto responde la transcripción, pero no se podía usar hasta
+ * que terminaban dos llamadas a un modelo que tardan minutos sobre una reunión larga. El
+ * segundo es el dinero: si el informe fallaba, reintentar volvía a pagar la identificación,
+ * que había salido bien.
+ *
+ * Separadas, cada fase se pide cuando hace falta, se paga una vez y un fallo sólo cuesta
+ * repetir lo que falló. La transcripción sigue arrancando sola porque es la única que no
+ * decide nada: sin ella no hay nada que mirar.
  */
-export async function runAnalysis(assetId: string, durationMs: number): Promise<void> {
+
+/** Envoltura común: un trabajo por asset, estado en la base de datos antes que en pantalla. */
+async function run(assetId: string, work: () => Promise<void>): Promise<void> {
   if (running.has(assetId)) return;
   running.add(assetId);
 
   try {
-    await transcribeStage(assetId, durationMs);
-    await analysisStages(assetId, durationMs);
+    await work();
+    // `ready` significa «no hay nada en curso», no «ya está todo hecho». Qué falta por hacer
+    // se deduce de los datos: hay transcript, hay hablantes identificados, hay resumen.
     transition(assetId, 'ready', 1);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Fallo desconocido en el análisis.';
@@ -59,6 +67,21 @@ export async function runAnalysis(assetId: string, durationMs: number): Promise<
   } finally {
     running.delete(assetId);
   }
+}
+
+/** Fase 1: transcribir y separar voces. Arranca sola al terminar la subida. */
+export async function runTranscription(assetId: string, durationMs: number): Promise<void> {
+  return run(assetId, () => transcribeStage(assetId, durationMs));
+}
+
+/** Fase 2: deducir quién es cada «Speaker A». Se pide a mano. */
+export async function runIdentification(assetId: string): Promise<void> {
+  return run(assetId, () => identifySpeakersStage(assetId));
+}
+
+/** Fase 3: redactar el informe. Se pide a mano. */
+export async function runSummary(assetId: string, durationMs: number): Promise<void> {
+  return run(assetId, () => analyzeStage(assetId, durationMs));
 }
 
 async function transcribeStage(assetId: string, durationMs: number): Promise<void> {
@@ -91,58 +114,12 @@ async function transcribeStage(assetId: string, durationMs: number): Promise<voi
 }
 
 /**
- * Deduce quién es cada hablante antes de enseñar nada.
+ * Deduce quién es cada hablante a partir de lo que se dice.
  *
- * La diarización sólo da «Speaker A»; quién es cada uno se deduce de lo que se dice. Va en su
- * propia etapa porque es lo que retiene los nombres: el transcript ya se puede leer sin ella,
- * pero sustituir «Speaker C» por un nombre a mitad de lectura obliga a releer.
+ * La diarización sólo da «Speaker A». Esta fase se pide aparte porque cuesta dinero y tiempo,
+ * y porque el transcript ya se lee sin ella: quien sólo quiera el texto no tiene por qué
+ * pagarla. Al terminar, los nombres sustituyen a las etiquetas en toda la interfaz.
  */
-/**
- * Identificación de hablantes y análisis: los dos trabajos que siguen al transcript.
- *
- * **Son independientes.** El análisis recibe el transcript anclado con sus etiquetas
- * (`Speaker A`), no los nombres deducidos: quién es quién se resuelve al pintar, cruzando la
- * etiqueta con la tabla de hablantes. Encadenarlos hacía esperar la suma de los dos sin que
- * el resumen ganara nada, así que por defecto corren a la vez y la espera es la del más lento.
- *
- * Lo que sí cuesta el paralelo es la caché de prompt: en serie, la segunda llamada reaprovecha
- * el transcript al 10 % de su precio; arrancando a la vez, ninguna de las dos encuentra caché
- * escrita todavía. Por eso `ANALYSIS_PARALLEL=false` recupera el ahorro para quien prefiera
- * pagar menos y esperar más.
- *
- * El estado refleja lo que de verdad está pasando: mientras los dos corren se anuncia la
- * identificación —es lo que retiene los nombres en pantalla—, y al resolverse pasa a resumen
- * si el análisis sigue en curso.
- */
-async function analysisStages(assetId: string, durationMs: number): Promise<void> {
-  transition(assetId, 'identifying_speakers', 0);
-
-  if (!config.analysisParallel) {
-    await identifySpeakersStage(assetId);
-    await analyzeStage(assetId, durationMs);
-    return;
-  }
-
-  let analyzeDone = false;
-
-  const identifying = identifySpeakersStage(assetId).then(() => {
-    // Si el análisis ya terminó, anunciar «resumiendo» sería mentir: queda ir a `ready`.
-    if (!analyzeDone) transition(assetId, 'summarizing', 0.5);
-  });
-
-  const analyzing = analyzeStage(assetId, durationMs).then(() => {
-    analyzeDone = true;
-  });
-
-  // `allSettled` y no `all`: con `all`, el primer fallo marca el job como fallido mientras la
-  // otra llamada sigue viva y escribe después en la base de datos, sobre un estado que ya dice
-  // otra cosa. Esperando a que las dos terminen, lo que se guarda es coherente con lo que se
-  // muestra, y se propaga el primer error real.
-  const results = await Promise.allSettled([identifying, analyzing]);
-  const failure = results.find((result) => result.status === 'rejected');
-  if (failure !== undefined) throw (failure as PromiseRejectedResult).reason;
-}
-
 async function identifySpeakersStage(assetId: string): Promise<void> {
   const transcript = getTranscript(assetId);
   const transcriptId = getTranscriptId(assetId);

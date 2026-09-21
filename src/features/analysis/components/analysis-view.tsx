@@ -16,6 +16,35 @@ import { SpeakerTimeline } from './speaker-timeline';
 import { SummaryPanel } from './summary-panel';
 import { TranscriptPanel } from './transcript-panel';
 
+/** Las tres fases que se pueden pedir. Coincide con lo que acepta la ruta. */
+type Phase = 'transcribe' | 'identify' | 'summarize';
+
+/**
+ * Qué ofrece cada fase pendiente, en los términos en que le importa a quien va a pulsarla:
+ * qué obtiene y qué cuesta.
+ */
+const PHASE_ACTION: Record<Phase, { label: string; detail: string; costs: boolean }> = {
+  transcribe: {
+    label: 'Transcribir la grabación',
+    detail: 'Convierte el audio en texto y separa las voces. El video no se vuelve a subir.',
+    costs: true,
+  },
+  identify: {
+    label: 'Identificar a los participantes',
+    detail:
+      'Deduce quién es cada «Speaker» a partir de lo que se dice y sustituye las etiquetas ' +
+      'por nombres. El transcript ya se puede leer y descargar sin esto.',
+    costs: true,
+  },
+  summarize: {
+    label: 'Generar el informe',
+    detail:
+      'Redacta el resumen, los puntos clave por tema, las decisiones y las tareas pendientes, ' +
+      'con enlaces al minuto exacto de la grabación.',
+    costs: true,
+  },
+};
+
 const STAGE_LABEL: Record<JobState, string> = {
   created: 'Preparando',
   uploading_audio: 'Subiendo el audio',
@@ -49,17 +78,31 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
   const durationMs = asset.durationMs ?? 0;
 
   /**
-   * El transcript se muestra en cuanto existe, sin esperar a saber quién es quién.
+   * El transcript se muestra en cuanto existe, sin esperar a nada más.
    *
-   * Antes se retenía para no obligar a releer cuando «Speaker C» se convierte en un nombre.
-   * Con grabaciones reales el cálculo sale al revés: identificar a siete personas en dos horas
-   * de audio son minutos de pantalla vacía teniendo el transcript ya guardado, y leerlo es lo
-   * primero que la gente quiere hacer. Los nombres entran solos cuando llegan, y mientras
-   * tanto la lista de hablantes dice que se están buscando — releer una etiqueta es barato;
-   * esperar sin nada delante, no.
+   * Es lo único que se produce solo. Las dos fases que siguen cuestan dinero y minutos, así
+   * que se piden a mano: quien sólo quiera leer la reunión no tiene por qué pagarlas.
    */
   const transcript = asset.transcript;
   const identifyingSpeakers = status.state === 'identifying_speakers';
+
+  /**
+   * Qué falta por hacer, deducido de los datos y no del estado del job.
+   *
+   * El estado dice qué está corriendo *ahora*; lo que queda pendiente está en lo que hay
+   * guardado. Deducirlo así tiene una consecuencia útil: tras un fallo, reintentar y continuar
+   * son la misma acción sobre la misma fase, sin tener que recordar en cuál se rompió.
+   */
+  const nextPhase: Phase | null =
+    transcript === null
+      ? 'transcribe'
+      : transcript.speakersIdentifiedAt === null
+        ? 'identify'
+        : asset.summary === null
+          ? 'summarize'
+          : null;
+
+  const busy = status.state !== 'ready' && status.state !== 'failed';
 
   const activeIndex = useMemo(
     () => (transcript === null ? -1 : findActiveSegmentIndex(transcript.segments, timeMs)),
@@ -97,26 +140,30 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
   );
 
   /**
-   * Relanza el análisis sin volver a subir nada.
+   * Lanza una fase concreta sin volver a subir nada.
    *
-   * Cubre dos casos que comparten la misma necesidad: un análisis que falló, y uno que
-   * terminó con el proveedor simulado y hay que rehacer con el real. En ambos, repetir la
-   * subida de un video de gigas sería un castigo desproporcionado: el audio ya está en el
-   * servidor, así que el trabajo arranca directamente desde la transcripción.
+   * El audio ya está en el servidor, así que ninguna fase repite la subida. Y al pedirse por
+   * nombre, reintentar la que falló no vuelve a pagar la que salió bien: ése era el coste que
+   * hacía cara cada prueba.
    */
-  const reanalyze = useCallback(async () => {
-    const response = await fetch(`/api/media/${initial.id}/analyze`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ durationMs: asset.durationMs ?? 0 }),
-    });
+  const runPhase = useCallback(
+    async (phase: Phase) => {
+      const response = await fetch(`/api/media/${initial.id}/analyze`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ durationMs: asset.durationMs ?? 0, phase }),
+      });
 
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      throw new Error(payload.error ?? 'No se pudo relanzar el análisis.');
-    }
-    await refresh();
-  }, [initial.id, asset.durationMs, refresh]);
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? 'No se pudo lanzar esa fase.');
+      }
+      await refresh();
+    },
+    [initial.id, asset.durationMs, refresh],
+  );
+
+  const reanalyze = useCallback(() => runPhase('transcribe'), [runPhase]);
 
   const mediaSource = asset.hasSource
     ? `/api/media/${asset.id}/file/source`
@@ -155,8 +202,15 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
           state={status.state}
           progress={status.progress}
           error={status.lastError}
-          onRetry={() => void reanalyze()}
+          onRetry={nextPhase === null ? undefined : () => void runPhase(nextPhase)}
+          retryLabel={nextPhase === null ? undefined : PHASE_ACTION[nextPhase].label}
         />
+      )}
+
+      {/* Nada arranca solo a partir de aquí: cada fase se pide, y quien la pide sabe qué
+          obtiene. Es lo que evita pagar dos veces por un reintento. */}
+      {nextPhase !== null && status.state !== 'failed' && (
+        <NextStepPanel phase={nextPhase} disabled={busy} onRun={() => runPhase(nextPhase)} />
       )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -245,6 +299,59 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
 }
 
 /**
+ * El siguiente paso, con su botón.
+ *
+ * Dice qué se va a obtener y avisa de que cuesta antes de pulsarlo, no después. La alternativa
+ * —encadenarlo todo— gastaba en cada prueba aunque sólo hiciera falta el texto.
+ */
+function NextStepPanel({
+  phase,
+  disabled,
+  onRun,
+}: {
+  phase: Phase;
+  disabled: boolean;
+  onRun: () => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const action = PHASE_ACTION[phase];
+
+  return (
+    <div className="border-border bg-surface space-y-2 rounded-md border px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">{action.label}</p>
+          <p className="text-muted max-w-prose text-xs leading-relaxed">{action.detail}</p>
+        </div>
+
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            setError(null);
+            void onRun().catch((cause: unknown) =>
+              setError(cause instanceof Error ? cause.message : 'No se pudo lanzar esa fase.'),
+            );
+          }}
+          className="border-accent/50 hover:bg-accent/10 shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+        >
+          {action.label}
+        </button>
+      </div>
+
+      {action.costs && (
+        <p className="text-muted text-xs">
+          Esta fase llama a un modelo, así que tiene coste. El importe real aparece arriba en cuanto
+          termina.
+        </p>
+      )}
+
+      {error !== null && <p className="text-danger text-xs">{error}</p>}
+    </div>
+  );
+}
+
+/**
  * Segundos transcurridos desde que se montó el componente.
  *
  * El reinicio no se hace aquí sino remontando con `key`: así no hay que escribir estado
@@ -267,11 +374,14 @@ function StageBanner({
   progress,
   error,
   onRetry,
+  retryLabel,
 }: {
   state: JobState;
   progress: number;
   error: string | null;
   onRetry?: () => void;
+  /** Qué fase se reintenta. Decirlo evita la duda de si se va a rehacer todo. */
+  retryLabel?: string;
 }) {
   const failed = state === 'failed';
   const elapsed = useElapsedSeconds();
@@ -313,12 +423,13 @@ function StageBanner({
             onClick={onRetry}
             className="border-danger/40 hover:bg-danger/10 rounded-md border px-3 py-1.5 text-xs font-medium"
           >
-            Reintentar el análisis
+            Reintentar: {retryLabel ?? 'el análisis'}
           </button>
-          {/* El audio ya está en el servidor: reintentar no vuelve a subir nada, así que
-              tras un fallo a los treinta minutos no hay que repetir la subida del video. */}
+          {/* Sólo se repite la fase que falló. Lo que ya estaba guardado sigue estándolo, así
+              que un fallo en el informe no vuelve a pagar la identificación. */}
           <p className="text-muted text-xs">
-            El audio ya está subido; el reintento arranca directamente desde la transcripción.
+            Se repite sólo esta fase; lo que ya se había producido no se pierde ni se vuelve a
+            pagar.
           </p>
         </div>
       )}

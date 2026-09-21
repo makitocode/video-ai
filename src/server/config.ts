@@ -93,19 +93,6 @@ export const config = {
   openAiKey,
 
   /**
-   * Identificar hablantes y redactar el resumen, ¿a la vez o en serie?
-   *
-   * Son dos trabajos independientes —el análisis recibe el transcript con etiquetas, no los
-   * nombres—, así que pueden correr en paralelo y la espera pasa de ser la suma a ser el más
-   * lento de los dos. El precio es la caché de prompt: en serie, la segunda llamada reaprovecha
-   * el transcript al 10 %; en paralelo las dos arrancan antes de que la caché exista y cada una
-   * paga su entrada completa.
-   *
-   * Por defecto gana el tiempo. Ponlo a `false` para recuperar el ahorro a cambio de esperar.
-   */
-  analysisParallel: process.env.ANALYSIS_PARALLEL?.trim().toLowerCase() !== 'false',
-
-  /**
    * Modelo por fase.
    *
    * Las dos fases piden cosas distintas: identificar hablantes es deducción sobre texto largo

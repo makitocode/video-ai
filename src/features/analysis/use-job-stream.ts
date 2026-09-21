@@ -30,9 +30,10 @@ export function useJobStream(
   }, [onStageChange]);
 
   useEffect(() => {
-    // Un job terminado ya no emitirá nada más: abrir la conexión sería malgastarla.
-    if (initial.state === 'ready') return;
-
+    // La conexión se abre siempre, también con el job en reposo. Antes se omitía cuando ya
+    // estaba «listo», porque el trabajo se encadenaba entero y no quedaba nada por emitir;
+    // ahora las fases se piden a mano en cualquier momento, y sin conexión abierta la primera
+    // que se lanzara no daría señal de vida hasta recargar la página.
     const source = new EventSource(`/api/media/${assetId}/events`);
     let lastState: JobStatus['state'] | null = null;
 
@@ -53,7 +54,7 @@ export function useJobStream(
     };
 
     return () => source.close();
-  }, [assetId, initial.state]);
+  }, [assetId]);
 
   return status;
 }

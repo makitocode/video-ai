@@ -5,3 +5,7 @@ public
 
 # Los documentos de diseño se editan a mano: alinear tablas ensucia los diffs.
 doc
+
+# Los prompts son texto que recibe el modelo, no código fuente. Reajustar sus saltos de línea
+# cambia lo que se envía —y por tanto la respuesta— sin que el cambio parezca uno.
+src/server/prompts/content/

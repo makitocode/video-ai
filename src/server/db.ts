@@ -72,6 +72,8 @@ create table if not exists speakers (
   suggested_name    text,
   suggestion_evidence_ms integer,
   suggestion_confidence  text,
+  role              text,
+  identified_by     text,
   color_index       integer not null default 0,
   total_speaking_ms integer not null default 0,
   unique (transcript_id, label)
@@ -96,15 +98,28 @@ create table if not exists summaries (
   id             text primary key,
   media_asset_id text not null unique references media_assets(id) on delete cascade,
   headline       text not null,
-  abstract       text not null,
-  chapters       text not null default '[]',
+  overview       text not null default '[]',
   model          text not null,
   created_at     text not null default (datetime('now'))
 );
 
+-- Los puntos clave se agrupan por tema y los temas van en orden cronológico: es lo que
+-- convierte una lista de frases sueltas en algo que se lee de arriba abajo.
+create table if not exists summary_topics (
+  id         text primary key,
+  summary_id text    not null references summaries(id) on delete cascade,
+  title      text    not null,
+  start_ms   integer not null,
+  end_ms     integer not null,
+  order_idx  integer not null
+);
+
+create index if not exists summary_topics_order on summary_topics (summary_id, order_idx);
+
 create table if not exists summary_claims (
   id               text primary key,
   summary_id       text    not null references summaries(id) on delete cascade,
+  topic_id         text references summary_topics(id) on delete cascade,
   kind             text    not null,
   text             text    not null,
   owner_speaker_id text references speakers(id) on delete set null,
@@ -144,8 +159,34 @@ export function getDb(): Database.Database {
   ensureDataDirs();
   const db = new Database(DATABASE_PATH);
   db.exec(SCHEMA);
+  migrate(db);
 
   instance = db;
   globalRef.__videoAiDb = db;
   return db;
+}
+
+/**
+ * Migraciones sobre bases de datos que ya existían.
+ *
+ * `create table if not exists` no añade columnas a una tabla ya creada, así que los campos
+ * nuevos se agregan aquí. Importa de verdad: una transcripción de dos horas cuesta dinero y
+ * media hora de espera, y tirar la base de datos para actualizar el esquema obligaría a
+ * rehacerla.
+ */
+function migrate(db: Database.Database): void {
+  const columns = [
+    ['speakers', 'role', 'text'],
+    ['speakers', 'identified_by', 'text'],
+    ['summaries', 'overview', "text not null default '[]'"],
+    ['summary_claims', 'topic_id', 'text'],
+  ] as const;
+
+  for (const [table, column, definition] of columns) {
+    // SQLite no tiene `add column if not exists`; se comprueba antes de intentarlo.
+    const existing = db.prepare(`pragma table_info(${table})`).all() as Array<{ name: string }>;
+    if (existing.some((row) => row.name === column)) continue;
+
+    db.exec(`alter table ${table} add column ${column} ${definition}`);
+  }
 }

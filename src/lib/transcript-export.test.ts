@@ -20,6 +20,8 @@ function speaker(id: string, label: string, displayName: string | null = null): 
     suggestedName: null,
     suggestionEvidenceMs: null,
     suggestionConfidence: null,
+    role: null,
+    identifiedBy: null,
     colorIndex: 0,
     totalSpeakingMs: 1_000,
   };
@@ -51,18 +53,38 @@ const transcript: Transcript = {
 
 const summary: Summary = {
   headline: 'Revisión trimestral',
-  abstract: 'Se revisaron los números del trimestre.',
-  chapters: [{ title: 'Apertura', startMs: 0, endMs: 9_000 }],
-  model: 'mock',
-  claims: [
+  overview: [
+    'Se revisaron los números del trimestre.',
+    'Quedó pendiente confirmar el presupuesto de marketing.',
+  ],
+  topics: [
     {
-      id: 'c1',
-      kind: 'key_point',
-      text: 'La reunión abrió con la revisión del trimestre.',
-      ownerSpeakerId: 'sp-a',
-      citations: [{ segmentId: 'seg-0', startMs: 1_000 }],
+      id: 't1',
+      title: 'Apertura',
+      startMs: 0,
+      endMs: 9_000,
+      claims: [
+        {
+          id: 'c1',
+          kind: 'key_point',
+          text: 'La reunión abrió con la revisión del trimestre.',
+          ownerSpeakerId: 'sp-a',
+          citations: [{ segmentId: 'seg-0', startMs: 1_000 }],
+        },
+      ],
     },
   ],
+  decisions: [],
+  actionItems: [
+    {
+      id: 'a1',
+      kind: 'action_item',
+      text: 'Desbloquear el presupuesto de marketing.',
+      ownerSpeakerId: 'sp-b',
+      citations: [{ segmentId: 'seg-2', startMs: 7_500 }],
+    },
+  ],
+  model: 'mock',
 };
 
 function context(overrides: Partial<ExportContext> = {}): ExportContext {
@@ -165,18 +187,31 @@ describe('toWebVtt', () => {
 });
 
 describe('toMarkdown', () => {
-  it('incluye el resumen con sus citas y el transcript completo', () => {
+  it('incluye el informe completo y el transcript', () => {
     const output = toMarkdown(context());
-    expect(output).toContain('## Resumen');
-    expect(output).toContain('Revisión trimestral');
+    expect(output).toContain('## Revisión trimestral');
+    expect(output).toContain('## Puntos clave');
+    expect(output).toContain('### Apertura');
+    expect(output).toContain('## Decisiones');
+    expect(output).toContain('## Tareas pendientes');
     expect(output).toContain('`00:01`'); // cita verificable
     expect(output).toContain('## Transcripción');
   });
 
-  it('omite la sección de resumen si todavía no existe', () => {
+  it('dice explícitamente cuando no hubo decisiones, en vez de callarlo', () => {
+    // Una sección vacía sin explicación se lee como un fallo del análisis.
+    expect(toMarkdown(context())).toContain('No se tomó ninguna decisión en firme');
+  });
+
+  it('omite el informe si todavía no existe, pero conserva el transcript', () => {
     const output = toMarkdown(context({ summary: null }));
-    expect(output).not.toContain('## Resumen');
+    expect(output).not.toContain('## Puntos clave');
     expect(output).toContain('## Transcripción');
+  });
+
+  it('arrastra el aviso de fiabilidad: el documento se lee fuera de la aplicación', () => {
+    expect(toMarkdown(context())).toContain('VERIFICA SIEMPRE LA INFORMACIÓN');
+    expect(toPlainText(context())).toContain('VERIFICA SIEMPRE LA INFORMACIÓN');
   });
 });
 

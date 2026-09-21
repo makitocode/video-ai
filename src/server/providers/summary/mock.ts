@@ -1,60 +1,82 @@
-import type { SummarizeInput, SummaryPayload, SummaryProvider } from './types';
+import type {
+  AnalysisPayload,
+  AnalysisProvider,
+  AnalyzeInput,
+  IdentifySpeakersInput,
+  SpeakerIdentificationPayload,
+} from './types';
 
 /**
- * Proveedor de resumen simulado.
+ * Análisis simulado.
  *
- * Como el simulado de transcripción, existe para que todo el flujo funcione sin claves. En vez
- * de inventarse contenido, **extrae frases reales del transcript** y las cita con su marca de
- * tiempo real. Así las citas del resumen son navegables de verdad y la interfaz se puede
- * probar en serio: lo único falso es el criterio de selección.
+ * Como el simulado de transcripción, existe para que todo el flujo funcione sin claves. Dos
+ * decisiones para que no engañe a nadie:
+ *
+ * - **No inventa nombres de hablante.** Devuelve todo en null con confianza baja, que es el
+ *   resultado honesto de no tener un modelo detrás. Poner nombres falsos sería justo el tipo
+ *   de dato plausible-pero-falso que hace perder el tiempo.
+ * - **Las citas son reales.** Los puntos clave se extraen de líneas existentes del transcript
+ *   con su marca de tiempo verdadera, así que la navegación funciona de verdad. Lo único
+ *   falso es el criterio de selección.
  */
-export class MockSummaryProvider implements SummaryProvider {
+export class MockAnalysisProvider implements AnalysisProvider {
   readonly name = 'mock';
-  readonly model = 'mock-summary-1';
+  readonly model = 'mock-analysis-1';
 
-  async summarize(input: SummarizeInput): Promise<SummaryPayload> {
+  async identifySpeakers(input: IdentifySpeakersInput): Promise<SpeakerIdentificationPayload> {
+    return {
+      speakers: input.speakers.map((speaker) => ({
+        label: speaker.label,
+        name: null,
+        role: null,
+        confidence: 'low' as const,
+        evidenceMs: null,
+        evidenceQuote: null,
+        sameAsLabel: null,
+      })),
+    };
+  }
+
+  async analyze(input: AnalyzeInput): Promise<AnalysisPayload> {
     const lines = parseAnchoredLines(input.anchoredTranscript);
 
     if (lines.length === 0) {
       return {
         language: input.languageCode,
         headline: 'Grabación sin contenido transcrito',
-        abstract: 'No se encontró texto en el transcript sobre el que construir un resumen.',
-        keyPoints: [],
+        overview: [
+          'No se encontró texto en el transcript sobre el que construir un análisis.',
+          'Revisa que el audio contenga voz.',
+        ],
+        topics: [],
         decisions: [],
         actionItems: [],
-        chapters: [],
-        speakerNameSuggestions: [],
       };
     }
 
-    // Se eligen frases repartidas por toda la duración en vez de las primeras:
-    // un resumen que sólo cubre los tres primeros minutos no es un resumen.
-    const picks = spreadPicks(lines, 5);
+    const paragraphs = input.durationMs > 90 * 60 * 1000 ? 3 : 2;
 
     return {
       language: input.languageCode,
-      headline: `[Simulado] Grabación de ${Math.round(input.durationMs / 60_000)} minutos con ${countSpeakers(lines)} hablantes`,
-      abstract:
-        '[Resumen simulado] Este texto no lo generó un modelo de lenguaje. Las citas sí son ' +
-        'reales: apuntan a momentos existentes del transcript, así que la navegación funciona. ' +
-        'Define ANTHROPIC_API_KEY para generar el resumen de verdad con Claude.',
-      keyPoints: picks.map((line) => ({
-        text: line.text.length > 160 ? `${line.text.slice(0, 157)}…` : line.text,
-        ownerSpeakerLabel: line.speakerLabel,
-        citations: [{ startMs: line.startMs, speakerLabel: line.speakerLabel }],
-      })),
+      headline: `[Simulado] Reunión de ${Math.round(input.durationMs / 60_000)} minutos`,
+      overview: Array.from({ length: paragraphs }, (_, index) =>
+        index === 0
+          ? '[Análisis simulado] Este texto no lo generó un modelo de lenguaje. Las citas sí ' +
+            'son reales: apuntan a momentos existentes del transcript, así que la navegación ' +
+            'funciona. Define ANTHROPIC_API_KEY para generar el análisis de verdad con Claude.'
+          : `Párrafo ${index + 1} de relleno, para que la interfaz reciba la misma forma de ` +
+            'datos que produciría el análisis real.',
+      ),
+      topics: buildTopics(lines, input.durationMs),
       decisions: [],
       actionItems: [],
-      chapters: buildChapters(lines, input.durationMs),
-      speakerNameSuggestions: [],
     };
   }
 }
 
 type AnchoredLine = { startMs: number; speakerLabel: string; text: string };
 
-/** Lee las líneas con el formato `[hh:mm:ss.mmm] Speaker X: texto` que produce el prompt. */
+/** Lee las líneas con el formato `[hh:mm:ss.mmm] Hablante: texto` que produce el prompt. */
 function parseAnchoredLines(transcript: string): AnchoredLine[] {
   const lines: AnchoredLine[] = [];
 
@@ -77,26 +99,31 @@ function parseAnchoredLines(transcript: string): AnchoredLine[] {
   return lines;
 }
 
-function spreadPicks(lines: AnchoredLine[], count: number): AnchoredLine[] {
-  if (lines.length <= count) return lines;
+/**
+ * Divide la grabación en bloques cronológicos y toma una línea real de cada uno.
+ *
+ * Reparte por toda la duración en vez de coger las primeras líneas: un resumen que sólo
+ * cubre los tres primeros minutos no es un resumen, y la interfaz no se probaría de verdad.
+ */
+function buildTopics(lines: AnchoredLine[], durationMs: number): AnalysisPayload['topics'] {
+  const topicCount = Math.min(4, Math.max(1, Math.round(durationMs / 1_800_000)));
+  const span = durationMs / topicCount;
 
-  const step = lines.length / count;
-  return Array.from({ length: count }, (_, index) => lines[Math.floor(index * step)]).filter(
-    (line): line is AnchoredLine => line !== undefined,
-  );
-}
+  return Array.from({ length: topicCount }, (_, index) => {
+    const startMs = Math.round(index * span);
+    const endMs = Math.round((index + 1) * span);
+    const within = lines.filter((line) => line.startMs >= startMs && line.startMs < endMs);
+    const picks = within.slice(0, 3);
 
-function countSpeakers(lines: AnchoredLine[]): number {
-  return new Set(lines.map((line) => line.speakerLabel)).size;
-}
-
-function buildChapters(lines: AnchoredLine[], durationMs: number): SummaryPayload['chapters'] {
-  const chapterCount = Math.min(4, Math.max(1, Math.floor(durationMs / 300_000)));
-  const span = durationMs / chapterCount;
-
-  return Array.from({ length: chapterCount }, (_, index) => ({
-    title: `[Simulado] Bloque ${index + 1}`,
-    startMs: Math.round(index * span),
-    endMs: Math.round((index + 1) * span),
-  }));
+    return {
+      title: `[Simulado] Bloque ${index + 1}`,
+      startMs,
+      endMs,
+      points: picks.map((line) => ({
+        text: line.text.length > 160 ? `${line.text.slice(0, 157)}…` : line.text,
+        speakerLabel: line.speakerLabel,
+        citations: [{ startMs: line.startMs }],
+      })),
+    };
+  }).filter((topic) => topic.points.length > 0);
 }

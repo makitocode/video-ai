@@ -1,4 +1,11 @@
-import { speakerName, type Speaker, type Summary, type Transcript } from './domain';
+import {
+  speakerName,
+  type Speaker,
+  type Summary,
+  type SummaryClaim,
+  type Transcript,
+} from './domain';
+import { ACCURACY_NOTE_TEXT } from './accuracy-note';
 import { groupConsecutiveTurns, type SpeakerTurn } from './transcript-turns';
 
 /**
@@ -150,6 +157,8 @@ export function toPlainText(context: ExportContext): string {
       .join(' · '),
     `Generado: ${context.generatedAt.toISOString()}`,
     '',
+    ACCURACY_NOTE_TEXT,
+    '',
     '='.repeat(72),
     '',
   ].join('\n');
@@ -217,7 +226,7 @@ function escapeVttVoice(name: string): string {
   return name.replace(/[<>]/g, '');
 }
 
-/** Markdown: el resumen con sus citas y, debajo, el transcript completo. */
+/** Markdown: el informe completo y, debajo, el transcript. */
 export function toMarkdown(context: ExportContext): string {
   const { transcript, summary } = context;
   const turns = toNamedTurns(transcript, true);
@@ -230,43 +239,46 @@ export function toMarkdown(context: ExportContext): string {
         ? `**Duración:** ${formatReadableTime(context.durationMs)}`
         : null,
       `**Idioma:** ${transcript.languageCode}`,
-      `**Hablantes:** ${describeSpeakers(transcript.speakers)}`,
+      `**Participantes:** ${describeSpeakers(transcript.speakers)}`,
     ]
       .filter((part) => part !== null)
       .join(' · '),
   );
 
+  // El aviso viaja con el documento: fuera de la aplicación nadie lo tiene delante.
+  parts.push(`> ${ACCURACY_NOTE_TEXT}`);
+
   if (summary !== null) {
-    parts.push(`## Resumen\n\n### ${summary.headline}\n\n${summary.abstract}`);
+    parts.push(`## ${summary.headline}`);
+    parts.push(summary.overview.join('\n\n'));
 
-    const sections = [
-      { kind: 'key_point' as const, title: 'Puntos clave' },
-      { kind: 'decision' as const, title: 'Decisiones' },
-      { kind: 'action_item' as const, title: 'Tareas pendientes' },
-    ];
-
-    for (const section of sections) {
-      const claims = summary.claims.filter((claim) => claim.kind === section.kind);
-      if (claims.length === 0) continue;
-
-      const lines = claims.map((claim) => {
-        // Las marcas se conservan porque son verificables: cada una corresponde a un
-        // segmento real del transcript que aparece más abajo en este mismo archivo.
-        const citations = claim.citations
-          .map((citation) => `\`${formatReadableTime(citation.startMs)}\``)
-          .join(' ');
-        return `- ${claim.text} ${citations}`.trim();
-      });
-
-      parts.push(`### ${section.title}\n\n${lines.join('\n')}`);
+    if (summary.topics.length > 0) {
+      const topics = summary.topics
+        .map((topic) => {
+          const heading =
+            `### ${topic.title} ` +
+            `\`${formatReadableTime(topic.startMs)}–${formatReadableTime(topic.endMs)}\``;
+          return `${heading}\n\n${topic.claims.map(claimLine).join('\n')}`;
+        })
+        .join('\n\n');
+      parts.push(`## Puntos clave\n\n${topics}`);
     }
 
-    if (summary.chapters.length > 0) {
-      const chapters = summary.chapters
-        .map((chapter) => `- \`${formatReadableTime(chapter.startMs)}\` ${chapter.title}`)
-        .join('\n');
-      parts.push(`### Capítulos\n\n${chapters}`);
-    }
+    parts.push(
+      `## Decisiones\n\n${
+        summary.decisions.length === 0
+          ? '_No se tomó ninguna decisión en firme._'
+          : summary.decisions.map(claimLine).join('\n')
+      }`,
+    );
+
+    parts.push(
+      `## Tareas pendientes\n\n${
+        summary.actionItems.length === 0
+          ? '_No quedaron tareas asignadas._'
+          : summary.actionItems.map(claimLine).join('\n')
+      }`,
+    );
   }
 
   const body = turns
@@ -278,6 +290,19 @@ export function toMarkdown(context: ExportContext): string {
   parts.push(`## Transcripción\n\n${body}`);
 
   return `${parts.join('\n\n')}\n`;
+}
+
+/**
+ * Una afirmación con sus marcas de tiempo.
+ *
+ * Las marcas se conservan porque son verificables: cada una corresponde a un segmento real
+ * del transcript, que aparece más abajo en este mismo archivo.
+ */
+function claimLine(claim: SummaryClaim): string {
+  const citations = claim.citations
+    .map((citation) => `\`${formatReadableTime(citation.startMs)}\``)
+    .join(' ');
+  return `- ${claim.text} ${citations}`.trim();
 }
 
 /** Punto de entrada único: elige el formato y devuelve el contenido. */

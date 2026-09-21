@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from './db';
 import { findSegmentAt } from '@/lib/citation-anchor';
 import type {
-  Chapter,
   ClaimKind,
   JobState,
   MediaAssetDetail,
@@ -11,6 +10,7 @@ import type {
   Speaker,
   Summary,
   SummaryClaim,
+  Topic,
   Transcript,
   TranscriptSegment,
 } from '@/lib/domain';
@@ -43,6 +43,8 @@ type SpeakerRow = {
   suggested_name: string | null;
   suggestion_evidence_ms: number | null;
   suggestion_confidence: string | null;
+  role: string | null;
+  identified_by: string | null;
   color_index: number;
   total_speaking_ms: number;
 };
@@ -322,6 +324,9 @@ function toSpeaker(row: SpeakerRow): Speaker {
     suggestionEvidenceMs: row.suggestion_evidence_ms,
     suggestionConfidence:
       confidence === 'high' || confidence === 'medium' || confidence === 'low' ? confidence : null,
+    role: row.role,
+    identifiedBy:
+      row.identified_by === 'model' || row.identified_by === 'user' ? row.identified_by : null,
     colorIndex: row.color_index,
     totalSpeakingMs: row.total_speaking_ms,
   };
@@ -350,7 +355,7 @@ export function getTranscript(assetId: string): Transcript | null {
   const speakers = db
     .prepare(
       `select id, label, display_name, suggested_name, suggestion_evidence_ms,
-              suggestion_confidence, color_index, total_speaking_ms
+              suggestion_confidence, role, identified_by, color_index, total_speaking_ms
          from speakers where transcript_id = ? order by color_index`,
     )
     .all(transcript.id) as SpeakerRow[];
@@ -383,9 +388,53 @@ export function getTranscript(assetId: string): Transcript | null {
 
 export function renameSpeaker(speakerId: string, displayName: string | null): boolean {
   const result = getDb()
-    .prepare('update speakers set display_name = ? where id = ?')
+    .prepare("update speakers set display_name = ?, identified_by = 'user' where id = ?")
     .run(displayName, speakerId);
   return result.changes > 0;
+}
+
+/**
+ * Aplica los nombres que dedujo el modelo.
+ *
+ * Nunca pisa un nombre puesto por una persona: si alguien ya corrigió a mano, esa decisión
+ * gana sobre la del modelo aunque se vuelva a analizar.
+ */
+export function applyIdentifiedSpeakers(
+  transcriptId: string,
+  identified: ReadonlyArray<{
+    label: string;
+    displayName: string | null;
+    role: string | null;
+    suggestedName: string | null;
+    evidenceMs: number | null;
+    confidence: string | null;
+  }>,
+): void {
+  const db = getDb();
+  const statement = db.prepare(
+    `update speakers
+        set display_name = coalesce(?, display_name),
+            role = coalesce(?, role),
+            suggested_name = ?,
+            suggestion_evidence_ms = ?,
+            suggestion_confidence = ?,
+            identified_by = case when identified_by = 'user' then 'user' else 'model' end
+      where transcript_id = ? and label = ? and coalesce(identified_by, '') <> 'user'`,
+  );
+
+  db.transaction(() => {
+    for (const speaker of identified) {
+      statement.run(
+        speaker.displayName,
+        speaker.role,
+        speaker.suggestedName,
+        speaker.evidenceMs,
+        speaker.confidence,
+        transcriptId,
+        speaker.label,
+      );
+    }
+  })();
 }
 
 export function applySpeakerSuggestion(input: {
@@ -413,17 +462,26 @@ export function getTranscriptId(assetId: string): string | null {
 
 // --- Resúmenes ---------------------------------------------------------------
 
+export type ClaimInput = {
+  kind: ClaimKind;
+  text: string;
+  ownerSpeakerLabel: string | null;
+  citationsMs: number[];
+};
+
 export type SummaryInput = {
   headline: string;
-  abstract: string;
-  chapters: Chapter[];
+  overview: string[];
   model: string;
-  claims: Array<{
-    kind: ClaimKind;
-    text: string;
-    ownerSpeakerLabel: string | null;
-    citationsMs: number[];
+  /** Temas en orden cronológico, cada uno con sus puntos clave. */
+  topics: Array<{
+    title: string;
+    startMs: number;
+    endMs: number;
+    points: Array<Omit<ClaimInput, 'kind'>>;
   }>;
+  decisions: Array<Omit<ClaimInput, 'kind'>>;
+  actionItems: Array<Omit<ClaimInput, 'kind'>>;
 };
 
 /**
@@ -475,26 +533,35 @@ export function saveSummary(
 
     const summaryId = randomUUID();
     db.prepare(
-      `insert into summaries (id, media_asset_id, headline, abstract, chapters, model)
-       values (?, ?, ?, ?, ?, ?)`,
-    ).run(
-      summaryId,
-      assetId,
-      input.headline,
-      input.abstract,
-      JSON.stringify(input.chapters),
-      input.model,
-    );
+      `insert into summaries (id, media_asset_id, headline, overview, model)
+       values (?, ?, ?, ?, ?)`,
+    ).run(summaryId, assetId, input.headline, JSON.stringify(input.overview), input.model);
 
-    const insertClaim = db.prepare(
-      `insert into summary_claims (id, summary_id, kind, text, owner_speaker_id, order_idx)
+    const insertTopic = db.prepare(
+      `insert into summary_topics (id, summary_id, title, start_ms, end_ms, order_idx)
        values (?, ?, ?, ?, ?, ?)`,
+    );
+    const insertClaim = db.prepare(
+      `insert into summary_claims
+         (id, summary_id, topic_id, kind, text, owner_speaker_id, order_idx)
+       values (?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertCitation = db.prepare(
       'insert into claim_citations (id, claim_id, segment_id, start_ms) values (?, ?, ?, ?)',
     );
 
-    input.claims.forEach((claim, index) => {
+    /**
+     * Guarda una afirmación sólo si al menos una de sus citas cae en un segmento real.
+     *
+     * Es la regla que hace verificable el resumen: si el modelo inventa una marca de tiempo,
+     * no hay nada que la respalde y la frase no llega a la base de datos.
+     */
+    const persistClaim = (
+      claim: Omit<ClaimInput, 'kind'>,
+      kind: ClaimKind,
+      topicId: string | null,
+      orderIdx: number,
+    ): void => {
       const resolved = claim.citationsMs
         .map((startMs) => findSegmentAt(segments, startMs))
         .filter((segment) => segment !== null);
@@ -508,19 +575,32 @@ export function saveSummary(
       insertClaim.run(
         claimId,
         summaryId,
-        claim.kind,
+        topicId,
+        kind,
         claim.text,
         claim.ownerSpeakerLabel === null
           ? null
           : (speakerIdByLabel.get(claim.ownerSpeakerLabel) ?? null),
-        index,
+        orderIdx,
       );
 
       for (const segment of resolved) {
         insertCitation.run(randomUUID(), claimId, segment.id, segment.startMs);
       }
       saved++;
+    };
+
+    input.topics.forEach((topic, topicIndex) => {
+      const topicId = randomUUID();
+      insertTopic.run(topicId, summaryId, topic.title, topic.startMs, topic.endMs, topicIndex);
+      topic.points.forEach((point, pointIndex) => {
+        persistClaim(point, 'key_point', topicId, pointIndex);
+      });
     });
+
+    // Decisiones y tareas son secciones propias, no cuelgan de ningún tema.
+    input.decisions.forEach((claim, index) => persistClaim(claim, 'decision', null, index));
+    input.actionItems.forEach((claim, index) => persistClaim(claim, 'action_item', null, index));
   })();
 
   return { saved, discarded };
@@ -529,21 +609,19 @@ export function saveSummary(
 export function getSummary(assetId: string): Summary | null {
   const db = getDb();
   const summary = db
-    .prepare(
-      'select id, headline, abstract, chapters, model from summaries where media_asset_id = ?',
-    )
-    .get(assetId) as
-    { id: string; headline: string; abstract: string; chapters: string; model: string } | undefined;
+    .prepare('select id, headline, overview, model from summaries where media_asset_id = ?')
+    .get(assetId) as { id: string; headline: string; overview: string; model: string } | undefined;
 
   if (summary === undefined) return null;
 
   const claims = db
     .prepare(
-      `select id, kind, text, owner_speaker_id from summary_claims
+      `select id, topic_id, kind, text, owner_speaker_id from summary_claims
         where summary_id = ? order by order_idx`,
     )
     .all(summary.id) as Array<{
     id: string;
+    topic_id: string | null;
     kind: ClaimKind;
     text: string;
     owner_speaker_id: string | null;
@@ -564,17 +642,35 @@ export function getSummary(assetId: string): Summary | null {
     citationsByClaim.set(citation.claim_id, list);
   }
 
+  const toClaim = (claim: (typeof claims)[number]): SummaryClaim => ({
+    id: claim.id,
+    kind: claim.kind,
+    text: claim.text,
+    ownerSpeakerId: claim.owner_speaker_id,
+    citations: citationsByClaim.get(claim.id) ?? [],
+  });
+
+  const topicRows = db
+    .prepare(
+      `select id, title, start_ms, end_ms from summary_topics
+        where summary_id = ? order by order_idx`,
+    )
+    .all(summary.id) as Array<{ id: string; title: string; start_ms: number; end_ms: number }>;
+
+  const topics: Topic[] = topicRows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    startMs: row.start_ms,
+    endMs: row.end_ms,
+    claims: claims.filter((claim) => claim.topic_id === row.id).map(toClaim),
+  }));
+
   return {
     headline: summary.headline,
-    abstract: summary.abstract,
-    chapters: JSON.parse(summary.chapters) as Chapter[],
+    overview: JSON.parse(summary.overview) as string[],
+    topics,
+    decisions: claims.filter((claim) => claim.kind === 'decision').map(toClaim),
+    actionItems: claims.filter((claim) => claim.kind === 'action_item').map(toClaim),
     model: summary.model,
-    claims: claims.map((claim): SummaryClaim => ({
-      id: claim.id,
-      kind: claim.kind,
-      text: claim.text,
-      ownerSpeakerId: claim.owner_speaker_id,
-      citations: citationsByClaim.get(claim.id) ?? [],
-    })),
   };
 }

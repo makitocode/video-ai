@@ -1,21 +1,18 @@
 'use client';
 
 import { formatTimestamp } from '@/lib/format';
-import { speakerName, type ClaimKind, type Speaker, type Summary } from '@/lib/domain';
-
-const SECTIONS: Array<{ kind: ClaimKind; title: string; empty: string }> = [
-  { kind: 'key_point', title: 'Puntos clave', empty: 'No se extrajeron puntos clave.' },
-  { kind: 'decision', title: 'Decisiones', empty: 'No se tomó ninguna decisión explícita.' },
-  { kind: 'action_item', title: 'Tareas pendientes', empty: 'No quedaron tareas asignadas.' },
-];
+import { speakerName, type Speaker, type SummaryClaim, type Summary } from '@/lib/domain';
 
 /**
- * Resumen con referencias temporales navegables.
+ * Informe de la reunión.
  *
- * Cada afirmación lleva al menos una cita porque **las que no la llevan no llegaron hasta
- * aquí**: se descartan al guardar, cuando se comprueba que la marca de tiempo corresponde a
- * un segmento real del transcript. Por eso todos los `mm:ss` de esta vista llevan a algún
- * sitio: es una propiedad del sistema, no una promesa del prompt.
+ * El orden es el del documento que uno querría recibir: primero el resumen general en prosa,
+ * después los puntos clave agrupados por tema y en orden cronológico, y al final lo accionable
+ * —decisiones y tareas—, que es lo que se consulta una y otra vez.
+ *
+ * Cada afirmación lleva al menos una cita porque **las que no la llevan no llegan hasta aquí**:
+ * se descartan al guardar, cuando se comprueba que la marca de tiempo corresponde a un segmento
+ * real. Por eso todos los `mm:ss` de esta vista llevan a algún sitio.
  */
 export function SummaryPanel({
   summary,
@@ -28,75 +25,83 @@ export function SummaryPanel({
 }) {
   const speakerById = new Map(speakers.map((speaker) => [speaker.id, speaker]));
 
-  return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-balance">{summary.headline}</h2>
-        <p className="text-muted text-sm leading-relaxed">{summary.abstract}</p>
-      </div>
+  const renderClaim = (claim: SummaryClaim) => {
+    const owner = claim.ownerSpeakerId === null ? null : speakerById.get(claim.ownerSpeakerId);
 
-      {summary.chapters.length > 0 && (
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold">Capítulos</h3>
-          <ul className="flex flex-wrap gap-2">
-            {summary.chapters.map((chapter) => (
-              <li key={`${chapter.startMs}-${chapter.title}`}>
+    return (
+      <li key={claim.id} className="text-sm leading-relaxed">
+        {owner !== null && owner !== undefined && (
+          <span className="text-muted mr-1 font-medium">{speakerName(owner)}:</span>
+        )}
+        {claim.text}{' '}
+        {claim.citations.map((citation) => (
+          <button
+            key={`${citation.segmentId}-${citation.startMs}`}
+            type="button"
+            onClick={() => onSeek(citation.startMs)}
+            className="text-accent tabular ml-1 text-xs underline underline-offset-2"
+            title="Saltar al momento que respalda esta afirmación"
+          >
+            {formatTimestamp(citation.startMs / 1000)}
+          </button>
+        ))}
+      </li>
+    );
+  };
+
+  return (
+    <div className="space-y-8">
+      <section className="space-y-3">
+        <h3 className="text-lg font-semibold text-balance">{summary.headline}</h3>
+        {summary.overview.map((paragraph, index) => (
+          <p key={index} className="text-sm leading-relaxed">
+            {paragraph}
+          </p>
+        ))}
+      </section>
+
+      {summary.topics.length > 0 && (
+        <section className="space-y-4">
+          <h3 className="text-sm font-semibold tracking-wide uppercase">Puntos clave</h3>
+
+          {summary.topics.map((topic) => (
+            <article key={topic.id} className="border-border space-y-2 border-l-2 pl-4">
+              <h4 className="flex flex-wrap items-baseline gap-2 font-medium">
+                {topic.title}
                 <button
                   type="button"
-                  onClick={() => onSeek(chapter.startMs)}
-                  className="border-border bg-surface rounded-md border px-3 py-1.5 text-left text-xs"
+                  onClick={() => onSeek(topic.startMs)}
+                  className="text-muted tabular text-xs hover:underline"
+                  title="Ir al inicio de este tema"
                 >
-                  <span className="tabular text-muted mr-2">
-                    {formatTimestamp(chapter.startMs / 1000)}
-                  </span>
-                  {chapter.title}
+                  {formatTimestamp(topic.startMs / 1000)} – {formatTimestamp(topic.endMs / 1000)}
                 </button>
-              </li>
-            ))}
-          </ul>
+              </h4>
+              <ul className="list-disc space-y-2 pl-5">{topic.claims.map(renderClaim)}</ul>
+            </article>
+          ))}
         </section>
       )}
 
-      {SECTIONS.map((section) => {
-        const claims = summary.claims.filter((claim) => claim.kind === section.kind);
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold tracking-wide uppercase">Decisiones</h3>
+        {summary.decisions.length === 0 ? (
+          <p className="text-muted text-sm">
+            No se tomó ninguna decisión en firme durante la reunión.
+          </p>
+        ) : (
+          <ul className="list-disc space-y-2 pl-5">{summary.decisions.map(renderClaim)}</ul>
+        )}
+      </section>
 
-        return (
-          <section key={section.kind} className="space-y-2">
-            <h3 className="text-sm font-semibold">{section.title}</h3>
-
-            {claims.length === 0 ? (
-              <p className="text-muted text-sm">{section.empty}</p>
-            ) : (
-              <ul className="space-y-3">
-                {claims.map((claim) => {
-                  const owner =
-                    claim.ownerSpeakerId === null ? null : speakerById.get(claim.ownerSpeakerId);
-
-                  return (
-                    <li key={claim.id} className="text-sm leading-relaxed">
-                      {owner !== null && owner !== undefined && (
-                        <span className="text-muted mr-1 font-medium">{speakerName(owner)}:</span>
-                      )}
-                      {claim.text}{' '}
-                      {claim.citations.map((citation) => (
-                        <button
-                          key={`${citation.segmentId}-${citation.startMs}`}
-                          type="button"
-                          onClick={() => onSeek(citation.startMs)}
-                          className="text-accent tabular ml-1 text-xs underline underline-offset-2"
-                          title="Saltar al momento que respalda esta afirmación"
-                        >
-                          {formatTimestamp(citation.startMs / 1000)}
-                        </button>
-                      ))}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        );
-      })}
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold tracking-wide uppercase">Tareas pendientes</h3>
+        {summary.actionItems.length === 0 ? (
+          <p className="text-muted text-sm">No quedaron tareas asignadas.</p>
+        ) : (
+          <ul className="list-disc space-y-2 pl-5">{summary.actionItems.map(renderClaim)}</ul>
+        )}
+      </section>
     </div>
   );
 }

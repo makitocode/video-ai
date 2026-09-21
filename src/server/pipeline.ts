@@ -1,10 +1,10 @@
 import { buildAnchoredTranscript } from '@/lib/anchored-transcript';
 import type { JobState } from '@/lib/domain';
 import { publishJobStatus } from './events';
-import { getSummaryProvider } from './providers/summary';
+import { getAnalysisProvider } from './providers/summary';
 import { getTranscriptionProvider } from './providers/transcription';
 import {
-  applySpeakerSuggestion,
+  applyIdentifiedSpeakers,
   getMediaFile,
   getTranscript,
   getTranscriptId,
@@ -50,7 +50,8 @@ export async function runAnalysis(assetId: string, durationMs: number): Promise<
 
   try {
     await transcribeStage(assetId, durationMs);
-    await summarizeStage(assetId, durationMs);
+    await identifySpeakersStage(assetId);
+    await analyzeStage(assetId, durationMs);
     transition(assetId, 'ready', 1);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Fallo desconocido en el análisis.';
@@ -89,50 +90,96 @@ async function transcribeStage(assetId: string, durationMs: number): Promise<voi
   });
 }
 
-async function summarizeStage(assetId: string, durationMs: number): Promise<void> {
+/**
+ * Deduce quién es cada hablante antes de enseñar nada.
+ *
+ * La diarización sólo da «Speaker A»; quién es cada uno se deduce de lo que se dice. Va en su
+ * propia etapa y antes del análisis por dos motivos: el transcript no se muestra hasta que
+ * está hecha —un «Speaker C» no le sirve a nadie para leer una reunión— y el análisis escribe
+ * mucho mejor cuando puede nombrar a la gente.
+ */
+async function identifySpeakersStage(assetId: string): Promise<void> {
   const transcript = getTranscript(assetId);
-  if (transcript === null) throw new Error('No hay transcript que resumir.');
+  const transcriptId = getTranscriptId(assetId);
+  if (transcript === null || transcriptId === null) return;
+
+  transition(assetId, 'identifying_speakers', 0);
+
+  const provider = getAnalysisProvider();
+  const identification = await provider.identifySpeakers({
+    anchoredTranscript: buildAnchored(transcript),
+    speakers: transcript.speakers.map((speaker) => ({
+      label: speaker.label,
+      totalSpeakingMs: speaker.totalSpeakingMs,
+    })),
+    languageCode: transcript.languageCode,
+  });
+
+  // Una etiqueta que el modelo señala como la misma persona que otra recibe su mismo nombre.
+  // No se fusionan las etiquetas: eso destruiría la atribución original y sería irreversible
+  // si la deducción fuera errónea. Compartir nombre da el resultado visible que se busca y
+  // deja los datos intactos.
+  const nameByLabel = new Map(
+    identification.speakers
+      .filter((speaker) => speaker.name !== null)
+      .map((speaker) => [speaker.label, speaker.name as string]),
+  );
+
+  applyIdentifiedSpeakers(
+    transcriptId,
+    identification.speakers.map((speaker) => {
+      const resolvedName =
+        speaker.name ??
+        (speaker.sameAsLabel === null ? null : (nameByLabel.get(speaker.sameAsLabel) ?? null));
+
+      // Sólo se aplica como nombre definitivo lo que el modelo sostiene con confianza; lo
+      // dudoso queda como sugerencia para que una persona lo confirme.
+      const confident = speaker.confidence === 'high' || speaker.confidence === 'medium';
+
+      return {
+        label: speaker.label,
+        displayName: confident ? resolvedName : null,
+        role: speaker.role,
+        suggestedName: confident ? null : resolvedName,
+        evidenceMs: speaker.evidenceMs,
+        confidence: speaker.confidence,
+      };
+    }),
+  );
+
+  transition(assetId, 'identifying_speakers', 1);
+}
+
+async function analyzeStage(assetId: string, durationMs: number): Promise<void> {
+  const transcript = getTranscript(assetId);
+  if (transcript === null) throw new Error('No hay transcript que analizar.');
 
   transition(assetId, 'summarizing', 0);
 
-  const speakerLabelById = new Map(transcript.speakers.map((s) => [s.id, s.label]));
-  const anchored = buildAnchoredTranscript(
-    transcript.segments.map((segment) => ({
-      startMs: segment.startMs,
-      endMs: segment.endMs,
-      speakerLabel:
-        segment.speakerId === null
-          ? 'Desconocido'
-          : (speakerLabelById.get(segment.speakerId) ?? 'Desconocido'),
-      text: segment.text,
-    })),
-  );
-
-  const provider = getSummaryProvider();
-  const payload = await provider.summarize({
-    anchoredTranscript: anchored,
+  const provider = getAnalysisProvider();
+  const payload = await provider.analyze({
+    anchoredTranscript: buildAnchored(transcript),
     languageCode: transcript.languageCode,
     durationMs,
   });
 
   transition(assetId, 'summarizing', 0.8);
 
-  const claims = [
-    ...payload.keyPoints.map((claim) => ({ ...claim, kind: 'key_point' as const })),
-    ...payload.decisions.map((claim) => ({ ...claim, kind: 'decision' as const })),
-    ...payload.actionItems.map((claim) => ({ ...claim, kind: 'action_item' as const })),
-  ];
-
   const { discarded } = saveSummary(assetId, {
     headline: payload.headline,
-    abstract: payload.abstract,
-    chapters: payload.chapters,
+    overview: payload.overview,
     model: provider.model,
-    claims: claims.map((claim) => ({
-      kind: claim.kind,
-      text: claim.text,
-      ownerSpeakerLabel: claim.ownerSpeakerLabel,
-      citationsMs: claim.citations.map((citation) => citation.startMs),
+    topics: payload.topics.map((topic) => ({
+      title: topic.title,
+      startMs: topic.startMs,
+      endMs: topic.endMs,
+      points: topic.points.map(toClaimInput),
+    })),
+    decisions: payload.decisions.map(toClaimInput),
+    actionItems: payload.actionItems.map((item) => ({
+      ...toClaimInput(item),
+      // `owner` es texto libre del modelo; la atribución fiable es la etiqueta del hablante.
+      ownerSpeakerLabel: item.speakerLabel,
     })),
   });
 
@@ -140,22 +187,37 @@ async function summarizeStage(assetId: string, durationMs: number): Promise<void
     // No es un fallo: es la verificación haciendo su trabajo. Se registra porque una tasa
     // alta de descartes indica que el prompt necesita ajuste.
     console.warn(
-      `[video-ai] ${discarded} afirmación(es) descartadas por citar marcas de tiempo ` +
-        'que no corresponden a ningún segmento del transcript.',
+      `[video-ai] ${discarded} afirmación(es) descartadas por citar marcas de tiempo que no ` +
+        'corresponden a ningún segmento del transcript.',
     );
   }
+}
 
-  // Las sugerencias de nombre se guardan como tales, nunca aplicadas: el usuario decide.
-  const transcriptId = getTranscriptId(assetId);
-  if (transcriptId !== null) {
-    for (const suggestion of payload.speakerNameSuggestions) {
-      applySpeakerSuggestion({
-        transcriptId,
-        label: suggestion.label,
-        suggestedName: suggestion.suggestedName,
-        evidenceMs: suggestion.evidenceMs,
-        confidence: suggestion.confidence,
-      });
-    }
-  }
+function toClaimInput(claim: {
+  text: string;
+  speakerLabel: string | null;
+  citations: ReadonlyArray<{ startMs: number }>;
+}): { text: string; ownerSpeakerLabel: string | null; citationsMs: number[] } {
+  return {
+    text: claim.text,
+    ownerSpeakerLabel: claim.speakerLabel,
+    citationsMs: claim.citations.map((citation) => citation.startMs),
+  };
+}
+
+/** Vista anclada del transcript: cada intervención con su marca de tiempo y su hablante. */
+function buildAnchored(transcript: NonNullable<ReturnType<typeof getTranscript>>): string {
+  const labelById = new Map(transcript.speakers.map((speaker) => [speaker.id, speaker.label]));
+
+  return buildAnchoredTranscript(
+    transcript.segments.map((segment) => ({
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      speakerLabel:
+        segment.speakerId === null
+          ? 'Desconocido'
+          : (labelById.get(segment.speakerId) ?? 'Desconocido'),
+      text: segment.text,
+    })),
+  );
 }

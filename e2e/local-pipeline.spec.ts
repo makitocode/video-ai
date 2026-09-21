@@ -125,8 +125,13 @@ test.describe('pipeline local', () => {
     const md = await page.request.get(`/api/media/${assetId}/export?format=md`);
     expect(md.ok()).toBe(true);
     const mdBody = await md.text();
-    expect(mdBody).toContain('## Resumen');
+    expect(mdBody).toContain('## Puntos clave');
+    expect(mdBody).toContain('## Decisiones');
+    expect(mdBody).toContain('## Tareas pendientes');
     expect(mdBody).toContain('## Transcripción');
+    // El aviso de fiabilidad viaja con el documento, que es donde nadie tiene la
+    // interfaz delante para leerlo.
+    expect(mdBody).toContain('VERIFICA SIEMPRE LA INFORMACIÓN');
 
     // --- El enlace de la interfaz apunta al mismo sitio ---
     await page.getByRole('group').filter({ hasText: 'Descargar' }).getByText('Descargar').click();

@@ -7,7 +7,15 @@
  */
 
 export type JobState =
-  'created' | 'uploading_audio' | 'transcribing' | 'summarizing' | 'ready' | 'failed';
+  | 'created'
+  | 'uploading_audio'
+  | 'transcribing'
+  // Etapa propia y no un detalle del resumen: hasta que no se sabe quién es quién, el
+  // transcript no se enseña. Un «Speaker C» no le sirve a nadie para leer una reunión.
+  | 'identifying_speakers'
+  | 'summarizing'
+  | 'ready'
+  | 'failed';
 
 export type MediaFileKind = 'audio' | 'source';
 
@@ -36,6 +44,10 @@ export type Speaker = {
   suggestedName: string | null;
   suggestionEvidenceMs: number | null;
   suggestionConfidence: 'high' | 'medium' | 'low' | null;
+  /** Papel en la reunión: «modera», «cliente», «responsable de producto»… */
+  role: string | null;
+  /** Quién puso el nombre: distingue lo deducido de lo confirmado por una persona. */
+  identifiedBy: 'model' | 'user' | null;
   colorIndex: number;
   totalSpeakingMs: number;
 };
@@ -60,10 +72,18 @@ export type Transcript = {
   segments: TranscriptSegment[];
 };
 
-export type Chapter = {
+/**
+ * Un tema de la reunión con sus puntos clave.
+ *
+ * Agrupar por tema y ordenar cronológicamente es lo que convierte una lista de frases
+ * sueltas en algo que se lee de arriba abajo y deja claro de qué fue la reunión.
+ */
+export type Topic = {
+  id: string;
   title: string;
   startMs: number;
   endMs: number;
+  claims: SummaryClaim[];
 };
 
 export type ClaimKind = 'key_point' | 'decision' | 'action_item';
@@ -83,10 +103,13 @@ export type SummaryClaim = {
 
 export type Summary = {
   headline: string;
-  abstract: string;
-  chapters: Chapter[];
+  /** Dos párrafos; tres cuando la grabación pasa de hora y media. */
+  overview: string[];
+  /** Puntos clave agrupados por tema, en orden cronológico. */
+  topics: Topic[];
+  decisions: SummaryClaim[];
+  actionItems: SummaryClaim[];
   model: string;
-  claims: SummaryClaim[];
 };
 
 export type MediaAssetDetail = MediaAssetSummary & {

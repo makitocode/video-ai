@@ -7,6 +7,7 @@ import type { JobState, MediaAssetDetail } from '@/lib/domain';
 import { findActiveSegmentIndex } from '../active-segment';
 import { useJobStream } from '../use-job-stream';
 import { useMediaSync } from '../use-media-sync';
+import { AccuracyNote } from './accuracy-note';
 import { ExportMenu } from './export-menu';
 import { SimulatedTranscriptBanner } from './simulated-banner';
 import { SpeakerList } from './speaker-list';
@@ -18,6 +19,7 @@ const STAGE_LABEL: Record<JobState, string> = {
   created: 'Preparando',
   uploading_audio: 'Subiendo el audio',
   transcribing: 'Transcribiendo y separando voces',
+  identifying_speakers: 'Identificando a los participantes',
   summarizing: 'Redactando el resumen',
   ready: 'Listo',
   failed: 'Falló',
@@ -42,8 +44,17 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
     if (next.state === 'summarizing' || next.state === 'ready') void refresh();
   });
 
-  const transcript = asset.transcript;
   const durationMs = asset.durationMs ?? 0;
+
+  /**
+   * El transcript se retiene hasta que termina la identificación de hablantes.
+   *
+   * Enseñarlo con «Speaker A/B/C» y sustituirlo por los nombres un minuto después hace que
+   * la gente empiece a leer dos veces. Se espera a tenerlo completo.
+   */
+  const speakersIdentified =
+    status.state === 'summarizing' || status.state === 'ready' || status.state === 'failed';
+  const transcript = speakersIdentified ? asset.transcript : null;
 
   const activeIndex = useMemo(
     () => (transcript === null ? -1 : findActiveSegmentIndex(transcript.segments, timeMs)),
@@ -127,6 +138,8 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
           donde no se pueda pasar por alto. */}
       {transcript?.provider === 'mock' && <SimulatedTranscriptBanner onReanalyze={reanalyze} />}
 
+      <AccuracyNote className="text-muted border-border bg-surface rounded-md border px-4 py-2.5 text-xs leading-relaxed" />
+
       {status.state !== 'ready' && (
         <StageBanner
           state={status.state}
@@ -182,7 +195,9 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
 
           {transcript === null ? (
             <p className="text-muted border-border rounded-lg border border-dashed p-6 text-center text-sm">
-              La transcripción aparecerá aquí en cuanto termine.
+              {status.state === 'identifying_speakers'
+                ? 'Identificando quién es quién antes de mostrar la transcripción…'
+                : 'La transcripción aparecerá aquí en cuanto termine.'}
             </p>
           ) : (
             <TranscriptPanel

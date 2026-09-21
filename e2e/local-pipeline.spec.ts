@@ -135,6 +135,46 @@ test.describe('pipeline local', () => {
     await expect(srtLink).toHaveAttribute('download', '');
   });
 
+  test('avisa de forma inequívoca cuando la transcripción es simulada', async ({ page }) => {
+    const fixture = createWavFixture({ seconds: 30 });
+
+    await page.goto('/');
+    await page.setInputFiles('input[type="file"]', fixture);
+    await page.waitForURL(/\/media\/[0-9a-f-]+$/, { timeout: 60_000 });
+
+    // Sin clave de transcripción, el aviso tiene que estar donde no se pueda pasar por alto.
+    // Next monta su propio elemento con role="alert" para anunciar rutas, así que el aviso
+    // se localiza por contenido y el rol se comprueba por separado.
+    await expect(page.getByText('no proviene de tu audio').first()).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.locator('[role="alert"]').filter({ hasText: 'simulada' })).toHaveCount(1);
+
+    // Y el propio texto del transcript debe identificarse, porque se exporta y se copia
+    // fuera de la aplicación, donde el aviso de la interfaz ya no acompaña.
+    const assetId = page.url().split('/').pop() ?? '';
+    const txt = await (await page.request.get(`/api/media/${assetId}/export?format=txt`)).text();
+    expect(txt).toContain('TRANSCRIPCIÓN SIMULADA');
+  });
+
+  test('descarga el audio extraído con un nombre derivado del video', async ({ page }) => {
+    const fixture = createWavFixture({ seconds: 20 });
+
+    await page.goto('/');
+    await page.setInputFiles('input[type="file"]', fixture);
+    await page.waitForURL(/\/media\/[0-9a-f-]+$/, { timeout: 60_000 });
+    const assetId = page.url().split('/').pop() ?? '';
+
+    const audio = await page.request.get(`/api/media/${assetId}/file/audio?download=1`);
+    expect(audio.ok()).toBe(true);
+
+    // Sin esto el navegador lo guardaría como «audio.ogg», que no dice a qué grabación
+    // pertenece.
+    const disposition = audio.headers()['content-disposition'] ?? '';
+    expect(disposition).toContain('attachment');
+    expect(disposition).toMatch(/filename="tone\.ogg"/);
+  });
+
   test('rechaza una descarga en formato desconocido', async ({ page }) => {
     await page.goto('/');
     const response = await page.request.get('/api/media/no-existe/export?format=exe');

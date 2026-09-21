@@ -30,6 +30,15 @@ export const config = {
   transcription: assemblyAiKey ? ('assemblyai' as const) : ('mock' as const),
   assemblyAiKey,
 
+  /**
+   * Idioma del audio, en código ISO (`es`, `en`, …).
+   *
+   * Si se deja vacío, el proveedor lo detecta solo. Fijarlo es más fiable cuando ya se sabe:
+   * la detección automática puede equivocarse con audio ruidoso o con alguna palabra suelta
+   * en otro idioma, y un idioma mal detectado arruina el transcript entero.
+   */
+  transcriptionLanguage: process.env.TRANSCRIPTION_LANGUAGE?.trim() || undefined,
+
   summary: anthropicKey ? ('anthropic' as const) : ('mock' as const),
   anthropicKey,
 
@@ -52,7 +61,11 @@ export function describeProviders(): {
       hint:
         config.transcription === 'mock'
           ? 'Transcripción simulada. Define ASSEMBLYAI_API_KEY para transcribir de verdad.'
-          : 'Transcripción real con AssemblyAI, con diarización e idioma automático.',
+          : `Transcripción real con AssemblyAI y diarización, ${
+              config.transcriptionLanguage === undefined
+                ? 'detectando el idioma automáticamente'
+                : `en ${config.transcriptionLanguage}`
+            }.`,
     },
     summary: {
       provider: config.summary,

@@ -35,6 +35,20 @@ export function ExportMenu({ assetId }: { assetId: string }) {
             );
           })}
         </ul>
+
+        <hr className="border-border my-1" />
+
+        <a
+          href={`/api/media/${assetId}/file/audio?download=1`}
+          download
+          className="hover:bg-surface block rounded px-3 py-2"
+        >
+          <span className="block text-sm font-medium">Audio extraído (.ogg)</span>
+          <span className="text-muted block text-xs">
+            Opus mono 16 kHz, el audio que se envió a transcribir. Lo aceptan AssemblyAI, Whisper y
+            la mayoría de herramientas de voz.
+          </span>
+        </a>
       </div>
     </details>
   );

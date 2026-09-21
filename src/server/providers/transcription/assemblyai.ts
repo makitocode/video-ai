@@ -41,7 +41,11 @@ type TranscriptResponse = {
 export class AssemblyAiTranscriptionProvider implements TranscriptionProvider {
   readonly name = 'assemblyai';
 
-  constructor(private readonly apiKey: string) {}
+  constructor(
+    private readonly apiKey: string,
+    /** Idioma fijado. Si es `undefined`, se le pide al proveedor que lo detecte. */
+    private readonly languageCode: string | undefined,
+  ) {}
 
   private get headers(): Record<string, string> {
     // AssemblyAI espera el token crudo, sin el prefijo `Bearer`.
@@ -85,7 +89,11 @@ export class AssemblyAiTranscriptionProvider implements TranscriptionProvider {
         audio_url: audioUrl,
         // Las dos capacidades que definen el producto, en la misma petición.
         speaker_labels: true,
-        language_detection: true,
+        // Detección automática sólo si no se fijó el idioma: los dos parámetros son
+        // mutuamente excluyentes, y fijarlo es más fiable cuando ya se sabe cuál es.
+        ...(this.languageCode === undefined
+          ? { language_detection: true }
+          : { language_code: this.languageCode }),
       }),
     });
 

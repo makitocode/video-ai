@@ -14,8 +14,22 @@ import type { TranscribeInput, TranscriptionProvider, TranscriptionResult } from
 
 const SPEAKER_LABELS = ['Speaker A', 'Speaker B', 'Speaker C'] as const;
 
-/** Guion de referencia: turnos cortos y largos alternados, como una reunión de verdad. */
+/**
+ * Guion de referencia: turnos cortos y largos alternados, como una reunión de verdad.
+ *
+ * La primera línea avisa de que el contenido es simulado, y va dentro del propio transcript a
+ * propósito: la interfaz también lo advierte, pero el texto se exporta y se copia fuera de la
+ * aplicación, donde ese aviso ya no acompaña. Un contenido que parece real y no se identifica
+ * como falso hace perder el tiempo a quien lo lee.
+ */
 const SCRIPT: Array<{ speaker: number; text: string }> = [
+  {
+    speaker: 0,
+    text:
+      '⚠ TRANSCRIPCIÓN SIMULADA — este texto NO proviene de tu audio. Es una conversación de ' +
+      'ejemplo, generada porque no hay ninguna clave de transcripción configurada. Define ' +
+      'ASSEMBLYAI_API_KEY para transcribir de verdad.',
+  },
   {
     speaker: 0,
     text: 'Buenos días. Vamos a revisar cómo cerramos el trimestre y qué queda pendiente para el siguiente.',

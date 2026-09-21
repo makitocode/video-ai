@@ -8,6 +8,7 @@ import { findActiveSegmentIndex } from '../active-segment';
 import { useJobStream } from '../use-job-stream';
 import { useMediaSync } from '../use-media-sync';
 import { ExportMenu } from './export-menu';
+import { SimulatedTranscriptBanner } from './simulated-banner';
 import { SpeakerList } from './speaker-list';
 import { SpeakerTimeline } from './speaker-timeline';
 import { SummaryPanel } from './summary-panel';
@@ -99,6 +100,10 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
           )}
         </p>
       </header>
+
+      {/* Antes que nada: si el transcript no salió del audio del usuario, hay que decirlo
+          donde no se pueda pasar por alto. */}
+      {transcript?.provider === 'mock' && <SimulatedTranscriptBanner />}
 
       {status.state !== 'ready' && (
         <StageBanner state={status.state} progress={status.progress} error={status.lastError} />

@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
-import { getMediaFile } from '@/server/repositories';
+import { buildMediaFileName } from '@/lib/transcript-export';
+import { getMediaAsset, getMediaFile } from '@/server/repositories';
 import { fileSize, readFileStream } from '@/server/storage';
 import type { MediaFileKind } from '@/lib/domain';
 
@@ -30,6 +31,17 @@ export async function GET(request: Request, { params }: Context) {
   const contentType = file.content_type ?? 'application/octet-stream';
   const rangeHeader = request.headers.get('range');
 
+  // Con `?download=1` se fuerza la descarga con un nombre derivado del video original.
+  // Sin esto el navegador guarda el archivo como «audio.ogg», que no dice nada de a qué
+  // grabación pertenece.
+  const downloadHeaders: Record<string, string> = {};
+  if (new URL(request.url).searchParams.get('download') === '1') {
+    const asset = getMediaAsset(id);
+    const extension = file.storage_path.split('.').pop() ?? 'bin';
+    const fileName = buildMediaFileName(asset?.originalFilename ?? 'audio', extension);
+    downloadHeaders['content-disposition'] = `attachment; filename="${fileName}"`;
+  }
+
   if (rangeHeader === null) {
     const stream = Readable.toWeb(readFileStream(file.storage_path)) as ReadableStream<Uint8Array>;
     return new Response(stream, {
@@ -37,6 +49,7 @@ export async function GET(request: Request, { params }: Context) {
         'content-type': contentType,
         'content-length': String(totalBytes),
         'accept-ranges': 'bytes',
+        ...downloadHeaders,
       },
     });
   }
@@ -69,6 +82,7 @@ export async function GET(request: Request, { params }: Context) {
       'content-length': String(clampedEnd - start + 1),
       'content-range': `bytes ${start}-${clampedEnd}/${totalBytes}`,
       'accept-ranges': 'bytes',
+      ...downloadHeaders,
     },
   });
 }

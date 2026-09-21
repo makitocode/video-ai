@@ -36,7 +36,11 @@ export default defineConfig({
     // daría cifras que no se parecen a las reales.
     command: 'pnpm build && pnpm start --port 3000',
     url: 'http://127.0.0.1:3000',
-    reuseExistingServer: !process.env.CI,
+    // Nunca se reutiliza un servidor ya levantado: uno que quedó vivo de una sesión
+    // anterior sirve una build antigua, y entonces el resultado de los tests deja de
+    // significar nada sin que se note. Recompilar cuesta segundos; esa clase de ruido
+    // cuesta mucho más.
+    reuseExistingServer: false,
     timeout: 180_000,
   },
 });

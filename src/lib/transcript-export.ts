@@ -302,13 +302,28 @@ export function exportTranscript(format: ExportFormat, context: ExportContext): 
  * ser un nombre válido en cualquier sistema de archivos.
  */
 export function buildExportFileName(originalFileName: string, format: ExportFormat): string {
-  const base = originalFileName.replace(/\.[^.]+$/, '');
-  const safe = base
+  return `${sanitizeFileBase(originalFileName)}.${EXPORT_FORMAT_META[format].extension}`;
+}
+
+/** Igual, para archivos que no son transcripciones: el audio extraído, por ejemplo. */
+export function buildMediaFileName(originalFileName: string, extension: string): string {
+  const safeExtension = extension
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toLowerCase()
+    .slice(0, 8);
+
+  return `${sanitizeFileBase(originalFileName)}.${safeExtension.length > 0 ? safeExtension : 'bin'}`;
+}
+
+function sanitizeFileBase(originalFileName: string): string {
+  const safe = originalFileName
+    .replace(/\.[^.]+$/, '')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // quita los acentos, conserva la letra
+    // Quita los diacríticos y conserva la letra base: "reunión" queda como "reunion".
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9-_]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
 
-  return `${safe.length > 0 ? safe : 'transcripcion'}.${EXPORT_FORMAT_META[format].extension}`;
+  return safe.length > 0 ? safe : 'transcripcion';
 }

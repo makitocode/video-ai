@@ -9,7 +9,7 @@ import type { TranscriptionProvider } from './types';
  */
 export function getTranscriptionProvider(): TranscriptionProvider {
   if (config.transcription === 'assemblyai' && config.assemblyAiKey !== undefined) {
-    return new AssemblyAiTranscriptionProvider(config.assemblyAiKey);
+    return new AssemblyAiTranscriptionProvider(config.assemblyAiKey, config.transcriptionLanguage);
   }
   return new MockTranscriptionProvider();
 }

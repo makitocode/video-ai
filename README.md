@@ -31,13 +31,19 @@ proveedores simulados y todo el flujo funciona de principio a fin.
 cp .env.example .env.local
 ```
 
-| Variable             | Qué activa                         | Coste aproximado            |
-| -------------------- | ---------------------------------- | --------------------------- |
-| `ASSEMBLYAI_API_KEY` | Transcripción y diarización reales | ~0,20 USD por hora de video |
-| `ANTHROPIC_API_KEY`  | Resumen real con Claude            | ~0,10 USD por cada 2 h      |
+| Variable                 | Qué activa                                 | Coste aproximado            |
+| ------------------------ | ------------------------------------------ | --------------------------- |
+| `ASSEMBLYAI_API_KEY`     | Transcripción y diarización reales         | ~0,20 USD por hora de video |
+| `ANTHROPIC_API_KEY`      | Resumen real con Claude                    | ~0,10 USD por cada 2 h      |
+| `TRANSCRIPTION_LANGUAGE` | Fija el idioma (`es`) en vez de detectarlo | —                           |
 
-Definir la clave es lo único necesario; no hay ningún otro interruptor. La interfaz indica en
-todo momento qué proveedores están simulados.
+Definir la clave es lo único necesario; no hay ningún otro interruptor.
+
+> ⚠️ **Sin `ASSEMBLYAI_API_KEY` el transcript es sintético**: una conversación de ejemplo que
+> NO proviene de tu audio. La aplicación lo avisa con un banner rojo sobre el reproductor y
+> marca el propio texto del transcript, para que el aviso sobreviva a la exportación. La clave
+> se consigue en [assemblyai.com](https://www.assemblyai.com/dashboard/api-keys) sin tarjeta,
+> con crédito gratis para unas 185 horas.
 
 ---
 

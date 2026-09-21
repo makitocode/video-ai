@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from './db';
 import { findSegmentAt } from '@/lib/citation-anchor';
+import { estimateCostMicros } from './pricing';
+import type { TokenUsage } from './ports/analysis';
 import type {
   ClaimKind,
   JobState,
@@ -132,7 +134,12 @@ export function getMediaAssetDetail(assetId: string): MediaAssetDetail | null {
   const asset = getMediaAsset(assetId);
   if (asset === null) return null;
 
-  return { ...asset, transcript: getTranscript(assetId), summary: getSummary(assetId) };
+  return {
+    ...asset,
+    usage: getUsage(assetId),
+    transcript: getTranscript(assetId),
+    summary: getSummary(assetId),
+  };
 }
 
 export function deleteMediaAsset(assetId: string): void {
@@ -673,4 +680,70 @@ export function getSummary(assetId: string): Summary | null {
     actionItems: claims.filter((claim) => claim.kind === 'action_item').map(toClaim),
     model: summary.model,
   };
+}
+
+// --- Consumo -----------------------------------------------------------------
+
+/**
+ * Registra lo que costó una fase del análisis.
+ *
+ * Se llama después de cada llamada a un proveedor, aunque el análisis falle más adelante: los
+ * tokens ya se gastaron, y un coste que no se apunta es un coste que nunca se entiende.
+ */
+export function recordUsage(assetId: string, phase: string, usage: TokenUsage): void {
+  getDb()
+    .prepare(
+      `insert into analysis_usage
+         (id, media_asset_id, phase, provider, model, input_tokens, cached_tokens,
+          output_tokens, cost_micros)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      randomUUID(),
+      assetId,
+      phase,
+      usage.provider,
+      usage.model,
+      usage.inputTokens,
+      usage.cachedInputTokens,
+      usage.outputTokens,
+      estimateCostMicros(usage),
+    );
+}
+
+export type UsageRow = {
+  phase: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  costMicros: number;
+};
+
+export function getUsage(assetId: string): UsageRow[] {
+  const rows = getDb()
+    .prepare(
+      `select phase, provider, model, input_tokens, cached_tokens, output_tokens, cost_micros
+         from analysis_usage where media_asset_id = ? order by created_at`,
+    )
+    .all(assetId) as Array<{
+    phase: string;
+    provider: string;
+    model: string;
+    input_tokens: number;
+    cached_tokens: number;
+    output_tokens: number;
+    cost_micros: number;
+  }>;
+
+  return rows.map((row) => ({
+    phase: row.phase,
+    provider: row.provider,
+    model: row.model,
+    inputTokens: row.input_tokens,
+    cachedTokens: row.cached_tokens,
+    outputTokens: row.output_tokens,
+    costMicros: row.cost_micros,
+  }));
 }

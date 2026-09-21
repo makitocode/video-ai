@@ -111,9 +111,39 @@ export type AnalyzeInput = {
   durationMs: number;
 };
 
-export interface AnalysisProvider {
-  readonly name: string;
-  readonly model: string;
-  identifySpeakers(input: IdentifySpeakersInput): Promise<SpeakerIdentificationPayload>;
-  analyze(input: AnalyzeInput): Promise<AnalysisPayload>;
+/**
+ * Consumo de una llamada, tal como lo reporta el proveedor.
+ *
+ * Se devuelve junto al resultado en vez de estimarse, porque una estimación basada en contar
+ * palabras se equivoca fácilmente en un 30 %: los tokenizadores cambian entre modelos y el
+ * razonamiento del modelo también consume presupuesto sin aparecer en el texto de salida.
+ */
+export type TokenUsage = {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  /** Tokens servidos desde caché, que cuestan una fracción del precio de entrada. */
+  cachedInputTokens: number;
+  outputTokens: number;
+};
+
+export type AnalysisResult<T> = {
+  payload: T;
+  usage: TokenUsage;
+};
+
+/**
+ * Puerto de análisis.
+ *
+ * Todo lo que el pipeline sabe del mundo de los LLM está aquí. Añadir un proveedor nuevo es
+ * escribir un adaptador que cumpla esta interfaz; nada más del sistema cambia.
+ */
+export interface AnalysisPort {
+  readonly provider: string;
+  /** Modelo que usará cada fase. Se reporta para poder auditar el coste después. */
+  readonly models: { identify: string; analyze: string };
+  identifySpeakers(
+    input: IdentifySpeakersInput,
+  ): Promise<AnalysisResult<SpeakerIdentificationPayload>>;
+  analyze(input: AnalyzeInput): Promise<AnalysisResult<AnalysisPayload>>;
 }

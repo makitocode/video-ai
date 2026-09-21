@@ -1,5 +1,9 @@
 import { readFileStream } from '@/server/storage';
-import type { TranscribeInput, TranscriptionProvider, TranscriptionResult } from './types';
+import type {
+  TranscribeInput,
+  TranscriptionPort,
+  TranscriptionResult,
+} from '@/server/ports/transcription';
 
 /**
  * Transcripción real con AssemblyAI: idioma automático y diarización en una sola llamada.
@@ -67,8 +71,12 @@ type TranscriptResponse = {
   text?: string | null;
 };
 
-export class AssemblyAiTranscriptionProvider implements TranscriptionProvider {
-  readonly name = 'assemblyai';
+export class AssemblyAiTranscriptionAdapter implements TranscriptionPort {
+  readonly provider = 'assemblyai';
+
+  get model(): string {
+    return this.options.speechModels[0] ?? 'universal-3-5-pro';
+  }
 
   constructor(
     private readonly apiKey: string,

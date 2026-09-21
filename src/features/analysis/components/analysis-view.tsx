@@ -8,6 +8,7 @@ import { findActiveSegmentIndex } from '../active-segment';
 import { useJobStream } from '../use-job-stream';
 import { useMediaSync } from '../use-media-sync';
 import { AccuracyNote } from './accuracy-note';
+import { CostLine } from './cost-line';
 import { ExportMenu } from './export-menu';
 import { SimulatedTranscriptBanner } from './simulated-banner';
 import { SpeakerList } from './speaker-list';
@@ -139,6 +140,8 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
       {transcript?.provider === 'mock' && <SimulatedTranscriptBanner onReanalyze={reanalyze} />}
 
       <AccuracyNote className="text-muted border-border bg-surface rounded-md border px-4 py-2.5 text-xs leading-relaxed" />
+
+      <CostLine usage={asset.usage} />
 
       {status.state !== 'ready' && (
         <StageBanner

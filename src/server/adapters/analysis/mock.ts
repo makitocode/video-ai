@@ -1,10 +1,20 @@
 import type {
   AnalysisPayload,
-  AnalysisProvider,
+  AnalysisPort,
+  AnalysisResult,
   AnalyzeInput,
   IdentifySpeakersInput,
   SpeakerIdentificationPayload,
-} from './types';
+} from '@/server/ports/analysis';
+
+/** El simulado no gasta tokens, y decirlo explícitamente evita que el coste parezca perdido. */
+const NO_USAGE = {
+  provider: 'mock',
+  model: 'mock-analysis-1',
+  inputTokens: 0,
+  cachedInputTokens: 0,
+  outputTokens: 0,
+} as const;
 
 /**
  * Análisis simulado.
@@ -19,12 +29,14 @@ import type {
  *   con su marca de tiempo verdadera, así que la navegación funciona de verdad. Lo único
  *   falso es el criterio de selección.
  */
-export class MockAnalysisProvider implements AnalysisProvider {
-  readonly name = 'mock';
-  readonly model = 'mock-analysis-1';
+export class MockAnalysisAdapter implements AnalysisPort {
+  readonly provider = 'mock';
+  readonly models = { identify: 'mock-analysis-1', analyze: 'mock-analysis-1' };
 
-  async identifySpeakers(input: IdentifySpeakersInput): Promise<SpeakerIdentificationPayload> {
-    return {
+  async identifySpeakers(
+    input: IdentifySpeakersInput,
+  ): Promise<AnalysisResult<SpeakerIdentificationPayload>> {
+    const speakers = {
       speakers: input.speakers.map((speaker) => ({
         label: speaker.label,
         name: null,
@@ -35,41 +47,49 @@ export class MockAnalysisProvider implements AnalysisProvider {
         sameAsLabel: null,
       })),
     };
+
+    return { payload: speakers, usage: { ...NO_USAGE } };
   }
 
-  async analyze(input: AnalyzeInput): Promise<AnalysisPayload> {
+  async analyze(input: AnalyzeInput): Promise<AnalysisResult<AnalysisPayload>> {
     const lines = parseAnchoredLines(input.anchoredTranscript);
 
     if (lines.length === 0) {
       return {
-        language: input.languageCode,
-        headline: 'Grabación sin contenido transcrito',
-        overview: [
-          'No se encontró texto en el transcript sobre el que construir un análisis.',
-          'Revisa que el audio contenga voz.',
-        ],
-        topics: [],
-        decisions: [],
-        actionItems: [],
+        usage: { ...NO_USAGE },
+        payload: {
+          language: input.languageCode,
+          headline: 'Grabación sin contenido transcrito',
+          overview: [
+            'No se encontró texto en el transcript sobre el que construir un análisis.',
+            'Revisa que el audio contenga voz.',
+          ],
+          topics: [],
+          decisions: [],
+          actionItems: [],
+        },
       };
     }
 
     const paragraphs = input.durationMs > 90 * 60 * 1000 ? 3 : 2;
 
     return {
-      language: input.languageCode,
-      headline: `[Simulado] Reunión de ${Math.round(input.durationMs / 60_000)} minutos`,
-      overview: Array.from({ length: paragraphs }, (_, index) =>
-        index === 0
-          ? '[Análisis simulado] Este texto no lo generó un modelo de lenguaje. Las citas sí ' +
-            'son reales: apuntan a momentos existentes del transcript, así que la navegación ' +
-            'funciona. Define ANTHROPIC_API_KEY para generar el análisis de verdad con Claude.'
-          : `Párrafo ${index + 1} de relleno, para que la interfaz reciba la misma forma de ` +
-            'datos que produciría el análisis real.',
-      ),
-      topics: buildTopics(lines, input.durationMs),
-      decisions: [],
-      actionItems: [],
+      usage: { ...NO_USAGE },
+      payload: {
+        language: input.languageCode,
+        headline: `[Simulado] Reunión de ${Math.round(input.durationMs / 60_000)} minutos`,
+        overview: Array.from({ length: paragraphs }, (_, index) =>
+          index === 0
+            ? '[Análisis simulado] Este texto no lo generó un modelo de lenguaje. Las citas sí ' +
+              'son reales: apuntan a momentos existentes del transcript, así que la navegación ' +
+              'funciona. Define ANTHROPIC_API_KEY para generar el análisis de verdad con Claude.'
+            : `Párrafo ${index + 1} de relleno, para que la interfaz reciba la misma forma de ` +
+              'datos que produciría el análisis real.',
+        ),
+        topics: buildTopics(lines, input.durationMs),
+        decisions: [],
+        actionItems: [],
+      },
     };
   }
 }

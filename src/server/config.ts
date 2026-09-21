@@ -35,6 +35,7 @@ function splitList(raw: string | undefined): string[] {
 // y el error sería un 401 críptico en vez del aviso de proveedor simulado.
 const assemblyAiKey = process.env.ASSEMBLYAI_API_KEY?.trim() || undefined;
 const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() || undefined;
+const openAiKey = process.env.OPENAI_API_KEY?.trim() || undefined;
 
 export const config = {
   /** `mock` no requiere clave y produce un transcript diarizado sintético coherente. */
@@ -70,15 +71,44 @@ export const config = {
   /** Vocabulario exacto: nombres de personas, empresas, productos, siglas. */
   transcriptionKeyterms: splitList(process.env.TRANSCRIPTION_KEYTERMS),
 
-  summary: anthropicKey ? ('anthropic' as const) : ('mock' as const),
+  /**
+   * Proveedor de análisis.
+   *
+   * Se elige explícitamente con ANALYSIS_PROVIDER; si no, gana la primera clave disponible.
+   * Sin ninguna, el simulado.
+   */
+  analysis: resolveAnalysisProvider(),
   anthropicKey,
+  openAiKey,
 
   /**
-   * Modelo por defecto para el resumen. Se puede fijar otro con ANTHROPIC_MODEL sin tocar
-   * código.
+   * Modelo por fase.
+   *
+   * Las dos fases piden cosas distintas: identificar hablantes es deducción sobre texto largo
+   * con salida corta; analizar es redacción y juicio con salida larga. Poder elegir modelo en
+   * cada una permite medir el equilibrio coste/calidad sin tocar código.
    */
-  anthropicModel: process.env.ANTHROPIC_MODEL?.trim() ?? 'claude-opus-5',
+  identifyModel: process.env.ANALYSIS_MODEL_IDENTIFY?.trim() || undefined,
+  analyzeModel: process.env.ANALYSIS_MODEL_ANALYZE?.trim() || undefined,
 } as const;
+
+/** Modelos por defecto de cada proveedor, por fase. */
+export const DEFAULT_ANALYSIS_MODELS = {
+  anthropic: { identify: 'claude-opus-5', analyze: 'claude-opus-5' },
+  openai: { identify: 'gpt-6-astra', analyze: 'gpt-6-astra' },
+  mock: { identify: 'mock-analysis-1', analyze: 'mock-analysis-1' },
+} as const;
+
+function resolveAnalysisProvider(): 'anthropic' | 'openai' | 'mock' {
+  const requested = process.env.ANALYSIS_PROVIDER?.trim().toLowerCase();
+
+  if (requested === 'anthropic' || requested === 'openai' || requested === 'mock') {
+    return requested;
+  }
+  if (anthropicKey !== undefined) return 'anthropic';
+  if (openAiKey !== undefined) return 'openai';
+  return 'mock';
+}
 
 /** Resumen legible del estado de configuración, para mostrarlo en la interfaz. */
 export function describeProviders(): {
@@ -99,12 +129,12 @@ export function describeProviders(): {
             }.`,
     },
     summary: {
-      provider: config.summary,
-      real: config.summary !== 'mock',
+      provider: config.analysis,
+      real: config.analysis !== 'mock',
       hint:
-        config.summary === 'mock'
-          ? 'Resumen simulado. Define ANTHROPIC_API_KEY para generarlo con Claude.'
-          : `Resumen generado con ${config.anthropicModel}.`,
+        config.analysis === 'mock'
+          ? 'Análisis simulado. Define ANTHROPIC_API_KEY (o OPENAI_API_KEY) para generarlo de verdad.'
+          : `Análisis con ${config.analysis}.`,
     },
   };
 }

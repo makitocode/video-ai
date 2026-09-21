@@ -112,7 +112,19 @@ export type Summary = {
   model: string;
 };
 
+/** Lo que costó de verdad una fase del análisis, según lo que reportó el proveedor. */
+export type UsageEntry = {
+  phase: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  costMicros: number;
+};
+
 export type MediaAssetDetail = MediaAssetSummary & {
+  usage: UsageEntry[];
   transcript: Transcript | null;
   summary: Summary | null;
 };

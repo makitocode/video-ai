@@ -137,6 +137,26 @@ create table if not exists claim_citations (
 );
 
 create index if not exists claim_citations_claim on claim_citations (claim_id);
+
+-- Consumo real reportado por los proveedores, por fase.
+--
+-- Se guarda lo que el proveedor dice que gastó, no una estimación por conteo de palabras: los
+-- tokenizadores cambian entre modelos y el razonamiento también consume sin aparecer en el
+-- texto de salida. Es la única medición de coste que no se equivoca.
+create table if not exists analysis_usage (
+  id             text primary key,
+  media_asset_id text    not null references media_assets(id) on delete cascade,
+  phase          text    not null,
+  provider       text    not null,
+  model          text    not null,
+  input_tokens   integer not null,
+  cached_tokens  integer not null,
+  output_tokens  integer not null,
+  cost_micros    integer not null,
+  created_at     text    not null default (datetime('now'))
+);
+
+create index if not exists analysis_usage_asset on analysis_usage (media_asset_id);
 `;
 
 let instance: Database.Database | null = null;

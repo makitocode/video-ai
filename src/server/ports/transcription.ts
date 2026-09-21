@@ -28,7 +28,15 @@ export type TranscribeInput = {
   onProgress?: (progress: number) => void;
 };
 
-export interface TranscriptionProvider {
-  readonly name: string;
+/**
+ * Puerto de transcripción.
+ *
+ * Todo lo que el pipeline sabe del mundo del reconocimiento de voz está aquí. Cambiar de
+ * AssemblyAI a ElevenLabs, o a un Whisper propio, es escribir un adaptador que cumpla esta
+ * interfaz.
+ */
+export interface TranscriptionPort {
+  readonly provider: string;
+  readonly model: string;
   transcribe(input: TranscribeInput): Promise<TranscriptionResult>;
 }

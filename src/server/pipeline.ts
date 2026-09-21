@@ -1,8 +1,8 @@
 import { buildAnchoredTranscript } from '@/lib/anchored-transcript';
 import type { JobState } from '@/lib/domain';
 import { publishJobStatus } from './events';
-import { getAnalysisProvider } from './providers/summary';
-import { getTranscriptionProvider } from './providers/transcription';
+import { getAnalysisPort, getTranscriptionPort } from './registry';
+import { recordUsage } from './repositories';
 import {
   applyIdentifiedSpeakers,
   getMediaFile,
@@ -69,7 +69,7 @@ async function transcribeStage(assetId: string, durationMs: number): Promise<voi
 
   transition(assetId, 'transcribing', 0);
 
-  const provider = getTranscriptionProvider();
+  const provider = getTranscriptionPort();
   const result = await provider.transcribe({
     audioStoragePath: audioFile.storage_path,
     durationMs,
@@ -83,7 +83,7 @@ async function transcribeStage(assetId: string, durationMs: number): Promise<voi
   saveTranscript(assetId, {
     languageCode: result.languageCode,
     languageConfidence: result.languageConfidence,
-    provider: provider.name,
+    provider: provider.provider,
     modelVersion: result.modelVersion,
     speakers: result.speakers,
     segments: result.segments,
@@ -105,8 +105,8 @@ async function identifySpeakersStage(assetId: string): Promise<void> {
 
   transition(assetId, 'identifying_speakers', 0);
 
-  const provider = getAnalysisProvider();
-  const identification = await provider.identifySpeakers({
+  const provider = getAnalysisPort();
+  const { payload: identification, usage: identifyUsage } = await provider.identifySpeakers({
     anchoredTranscript: buildAnchored(transcript),
     speakers: transcript.speakers.map((speaker) => ({
       label: speaker.label,
@@ -114,6 +114,7 @@ async function identifySpeakersStage(assetId: string): Promise<void> {
     })),
     languageCode: transcript.languageCode,
   });
+  recordUsage(assetId, 'identify', identifyUsage);
 
   // Una etiqueta que el modelo señala como la misma persona que otra recibe su mismo nombre.
   // No se fusionan las etiquetas: eso destruiría la atribución original y sería irreversible
@@ -156,19 +157,20 @@ async function analyzeStage(assetId: string, durationMs: number): Promise<void> 
 
   transition(assetId, 'summarizing', 0);
 
-  const provider = getAnalysisProvider();
-  const payload = await provider.analyze({
+  const provider = getAnalysisPort();
+  const { payload, usage: analyzeUsage } = await provider.analyze({
     anchoredTranscript: buildAnchored(transcript),
     languageCode: transcript.languageCode,
     durationMs,
   });
+  recordUsage(assetId, 'analyze', analyzeUsage);
 
   transition(assetId, 'summarizing', 0.8);
 
   const { discarded } = saveSummary(assetId, {
     headline: payload.headline,
     overview: payload.overview,
-    model: provider.model,
+    model: provider.models.analyze,
     topics: payload.topics.map((topic) => ({
       title: topic.title,
       startMs: topic.startMs,

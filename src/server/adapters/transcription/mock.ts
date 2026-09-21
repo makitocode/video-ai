@@ -1,4 +1,8 @@
-import type { TranscribeInput, TranscriptionProvider, TranscriptionResult } from './types';
+import type {
+  TranscribeInput,
+  TranscriptionPort,
+  TranscriptionResult,
+} from '@/server/ports/transcription';
 
 /**
  * Proveedor de transcripción simulado.
@@ -98,8 +102,9 @@ const SCRIPT: Array<{ speaker: number; text: string }> = [
 const WORDS_PER_SECOND = 2.6;
 const PAUSE_MS = 400;
 
-export class MockTranscriptionProvider implements TranscriptionProvider {
-  readonly name = 'mock';
+export class MockTranscriptionAdapter implements TranscriptionPort {
+  readonly provider = 'mock';
+  readonly model = 'mock-1';
 
   async transcribe(input: TranscribeInput): Promise<TranscriptionResult> {
     const segments: TranscriptionResult['segments'] = [];

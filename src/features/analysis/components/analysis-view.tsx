@@ -80,6 +80,22 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
     [refresh],
   );
 
+  /**
+   * Relanza el análisis sin volver a subir nada.
+   *
+   * Una transcripción de dos horas tarda media hora larga; si falla al final, repetir la
+   * subida del video sería un castigo desproporcionado. El audio ya está en el servidor, así
+   * que el reintento arranca directamente desde la transcripción.
+   */
+  const retryAnalysis = useCallback(async () => {
+    await fetch(`/api/media/${initial.id}/analyze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ durationMs: asset.durationMs ?? 0 }),
+    });
+    void refresh();
+  }, [initial.id, asset.durationMs, refresh]);
+
   const mediaSource = asset.hasSource
     ? `/api/media/${asset.id}/file/source`
     : `/api/media/${asset.id}/file/audio`;
@@ -106,7 +122,12 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
       {transcript?.provider === 'mock' && <SimulatedTranscriptBanner />}
 
       {status.state !== 'ready' && (
-        <StageBanner state={status.state} progress={status.progress} error={status.lastError} />
+        <StageBanner
+          state={status.state}
+          progress={status.progress}
+          error={status.lastError}
+          onRetry={() => void retryAnalysis()}
+        />
       )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -185,10 +206,12 @@ function StageBanner({
   state,
   progress,
   error,
+  onRetry,
 }: {
   state: JobState;
   progress: number;
   error: string | null;
+  onRetry?: () => void;
 }) {
   const failed = state === 'failed';
 
@@ -207,6 +230,23 @@ function StageBanner({
       </div>
 
       {failed && error !== null && <p className="mt-1">{error}</p>}
+
+      {failed && onRetry !== undefined && (
+        <div className="mt-3 space-y-1">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="border-danger/40 hover:bg-danger/10 rounded-md border px-3 py-1.5 text-xs font-medium"
+          >
+            Reintentar el análisis
+          </button>
+          {/* El audio ya está en el servidor: reintentar no vuelve a subir nada, así que
+              tras un fallo a los treinta minutos no hay que repetir la subida del video. */}
+          <p className="text-muted text-xs">
+            El audio ya está subido; el reintento arranca directamente desde la transcripción.
+          </p>
+        </div>
+      )}
 
       {!failed && (
         <div className="border-border mt-2 h-1.5 overflow-hidden rounded-full border">

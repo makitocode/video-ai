@@ -1,29 +1,17 @@
-# video-ai
+# video-ai — versión local
 
-Transcripción con diarización y resumen con referencias temporales, sin esperar a que suba el
-video.
+> Estás en la rama **`local`**. Funciona entera en tu máquina: sin Supabase, sin S3, sin
+> desplegar nada. La rama `claude/nifty-shannon-mm4fbo` contiene la versión pensada para la
+> nube. Ambas comparten arquitectura; cambian los adaptadores, no los puertos.
+> Ver [doc/12-version-local.md](./doc/12-version-local.md).
 
-El diseño completo está en [`doc/`](./doc). Empieza por [`doc/README.md`](./doc/README.md).
+Sube un video y obtén:
+
+- **Transcripción con diarización** — quién dice qué y cuándo, detectando el idioma solo.
+- **Resumen con referencias temporales** — cada afirmación lleva un `mm:ss` clicable que salta
+  al momento que la respalda.
 
 ---
-
-## La idea en una línea
-
-Para transcribir un video no hace falta el video, hace falta el audio — y el audio de 2 horas
-pesa ~22 MB frente a los 5 GB del archivo original. Extrayéndolo **en el navegador** con
-WebCodecs, el análisis arranca en segundos en vez de después de una subida de 13 minutos. Eso
-es también lo que permite que no haya backend propio que operar: ver
-[ADR-001](./doc/02-adr-backend-serverless.md).
-
-## Estado
-
-| Fase                                    | Estado                                                                                       |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 0 — Fundaciones (tooling, esquema, RLS) | ✅ Hecho                                                                                     |
-| 1 — Spike de extracción en el navegador | ⚠️ Funciona; falta el corpus de archivos reales ([resultados](./doc/11-resultados-spike.md)) |
-| 2 — Ingesta de producción               | ⬜ Pendiente                                                                                 |
-| 3 — Transcripción y diarización         | ⬜ Pendiente                                                                                 |
-| 4 — Resumen con citas                   | ⬜ Pendiente                                                                                 |
 
 ## Arrancar
 
@@ -32,22 +20,54 @@ pnpm install
 pnpm dev
 ```
 
-Abre `http://localhost:3000/spike` y suelta un video. **El banco de pruebas de extracción
-funciona sin configurar nada**: todo ocurre dentro del navegador y no se sube nada a ningún
-sitio.
+Abre `http://localhost:3000` y suelta un video. **No hace falta configurar nada**: arranca con
+proveedores simulados y todo el flujo funciona de principio a fin.
 
-### Configurar Supabase (necesario a partir de la Fase 2)
+### Para resultados reales
 
 ```bash
-cp .env.example .env.local     # rellena URL y anon key
-pnpm supabase link --project-ref TU_PROJECT_REF
-pnpm db:push                   # aplica las migraciones de supabase/migrations/
-pnpm db:types                  # regenera src/types/database.ts
+cp .env.example .env.local
 ```
 
-Las claves de proveedores (ASR, LLM) **no van en `.env.local`**: se configuran como secretos de
-Edge Functions con `supabase secrets set`. Una clave con prefijo `NEXT_PUBLIC_` queda expuesta
-en el bundle del navegador para cualquiera. Ver [doc/08-seguridad.md](./doc/08-seguridad.md).
+| Variable             | Qué activa                         | Coste aproximado            |
+| -------------------- | ---------------------------------- | --------------------------- |
+| `ASSEMBLYAI_API_KEY` | Transcripción y diarización reales | ~0,20 USD por hora de video |
+| `ANTHROPIC_API_KEY`  | Resumen real con Claude            | ~0,10 USD por cada 2 h      |
+
+Definir la clave es lo único necesario; no hay ningún otro interruptor. La interfaz indica en
+todo momento qué proveedores están simulados.
+
+---
+
+## La idea
+
+Para transcribir un video no hace falta el video: hace falta el audio. Y el audio de 2 horas
+pesa ~22 MB frente a los 5 GB del archivo original.
+
+```
+Ruta clásica:  [ copiar 5 GB ] → [ extraer audio ] → [ transcribir ] → primer resultado
+Nuestra ruta:  [ extraer audio en el navegador: ~20 s ] → [ subir 22 MB ] → [ transcribir ]
+               ...y el video se copia en segundo plano, sin bloquear nada
+```
+
+El audio se extrae **en el navegador** con WebCodecs, dentro de un Web Worker. El resultado es
+que el tiempo hasta el primer resultado deja de depender del tamaño del video — y, de paso, es
+lo que hace que no haga falta ningún servidor con ffmpeg.
+
+## Cómo funciona
+
+```
+Navegador                        API local (Next.js)            Proveedores
+─────────────────────────────────────────────────────────────────────────────
+sondeo (magic bytes + códecs)
+extracción de audio (WebCodecs)
+  │ audio ~22 MB  ──────────────▶ .data/media/
+  │                               SQLite: asset + job
+  └ análisis  ──────────────────▶ pipeline ───────────────────▶ ASR (diarización)
+                                       │                        LLM (resumen)
+  video original (segundo plano)       │
+  ◀── progreso por SSE ────────────────┘
+```
 
 ## Comandos
 
@@ -57,38 +77,41 @@ en el bundle del navegador para cualquiera. Ver [doc/08-seguridad.md](./doc/08-s
 | `pnpm check`    | Typecheck + lint + tests unitarios        |
 | `pnpm test`     | Tests unitarios (Vitest)                  |
 | `pnpm test:e2e` | Tests end-to-end en Chromium (Playwright) |
-| `pnpm db:push`  | Aplica las migraciones a Supabase         |
 
 ## Estructura
 
-Organizada por **feature**, no por tipo de archivo: cada feature es un vertical que se puede
-razonar —y borrar— de forma aislada.
-
 ```
-doc/                          Diseño del sistema y decisiones de arquitectura
-supabase/migrations/          Esquema + RLS, versionado en el repo
-e2e/                          Tests end-to-end (Playwright)
+doc/                            Diseño del sistema y decisiones de arquitectura
+e2e/                            Tests end-to-end
 src/
-├─ app/                       Rutas (App Router)
-│  └─ spike/                  Banco de pruebas de la Fase 1
-├─ features/ingest/           El corazón técnico
-│  ├─ container-sniff.ts      Identificación por magic bytes (pura, testeada)
-│  ├─ route-decision.ts       Ruta rápida vs. ruta de escape (pura, testeada)
-│  ├─ probe.ts                Sondeo con Mediabunny
-│  ├─ audio-profile.ts        Qué sabe codificar este navegador
-│  ├─ extract-audio.ts        Demux → decode → mono 16 kHz → Opus
-│  ├─ resumable-upload.ts     Subida TUS directa a Supabase Storage
-│  └─ workers/media.worker.ts Todo lo pesado, fuera del hilo principal
-└─ lib/                       Utilidades compartidas
+├─ app/
+│  ├─ page.tsx                  Subida + biblioteca
+│  ├─ media/[id]/               Vista de análisis
+│  ├─ spike/                    Banco de pruebas de extracción (Fase 1)
+│  └─ api/                      La API local (sustituye a las Edge Functions)
+├─ features/
+│  ├─ ingest/                   Sondeo, extracción, subida — corre en el navegador
+│  └─ analysis/                 Reproductor, transcript, línea de hablantes, resumen
+├─ server/                      Sólo servidor
+│  ├─ db.ts  repositories.ts    SQLite (sustituye a Postgres + RLS)
+│  ├─ storage.ts                Sistema de archivos (sustituye a Supabase Storage)
+│  ├─ pipeline.ts               Orquestación (sustituye a Edge Functions + pgmq)
+│  ├─ events.ts                 SSE (sustituye a Realtime)
+│  └─ providers/                ASR y LLM, con implementación simulada y real
+└─ lib/                         Dominio y utilidades compartidas
 ```
+
+Los archivos de `src/lib/` y `src/features/` que no dependen del servidor son **idénticos** en
+ambas ramas. Es la ventaja de separar puertos de adaptadores.
 
 ## Principios que no se negocian
 
-1. **El servidor no toca bytes de media.** Si una función nuestra necesita abrir un archivo de
-   medios, el diseño está mal. Es lo que nos mantiene sin infraestructura.
-2. **Lo pesado, al borde.** El navegador del usuario ya trae un decodificador acelerado por
-   hardware. Úsalo.
-3. **Todo el estado del pipeline vive en Postgres.** Un job es una fila.
-4. **La autorización vive en SQL (RLS)**, no repartida por el código.
-5. **Degradar, no fallar.** Si el navegador no puede con el códec, hay una ruta más lenta pero
-   funcional. Nunca un callejón sin salida.
+1. **El servidor no toca bytes de media.** Lo pesado lo hace el navegador.
+2. **Todo el estado del pipeline vive en la base de datos.** Un job es una fila; recargar no
+   pierde nada.
+3. **Toda cita se verifica antes de guardarse.** Si el modelo inventa una marca de tiempo, no
+   hay segmento que la respalde y la afirmación se descarta. Lo impone una clave foránea.
+4. **El transcript es entrada no confiable** para el LLM: va delimitado como datos, la salida
+   es estructurada y validada, y el pipeline de resumen no tiene herramientas ni red.
+5. **Degradar, no fallar.** Sin claves, proveedores simulados. Sin códec soportado, un mensaje
+   claro en vez de un error críptico a mitad del proceso.

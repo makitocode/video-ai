@@ -1,3 +1,8 @@
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+
+# better-sqlite3 trae binario nativo: sin esto pnpm omite su build script
+# y la instalación falla en máquinas sin binario precompilado.
+onlyBuiltDependencies:
+  - better-sqlite3

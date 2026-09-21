@@ -30,8 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — el ejemplo sí se versiona, los reales nunca
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -51,3 +52,6 @@ next-env.d.ts
 /test-results
 /playwright-report
 /blob-report
+
+# datos locales (base de datos y archivos de medios)
+/.data

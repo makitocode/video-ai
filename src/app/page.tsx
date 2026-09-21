@@ -1,30 +1,89 @@
 import Link from 'next/link';
+import { UploadPanel } from '@/features/ingest/components/upload-panel';
+import { formatDuration } from '@/lib/format';
+import { describeProviders } from '@/server/config';
+import { listMediaAssets } from '@/server/repositories';
+
+export const dynamic = 'force-dynamic';
+
+const STATE_LABEL: Record<string, string> = {
+  created: 'preparando',
+  uploading_audio: 'subiendo',
+  transcribing: 'transcribiendo',
+  summarizing: 'resumiendo',
+  ready: 'listo',
+  failed: 'falló',
+};
 
 export default function HomePage() {
-  return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-8 px-4 py-16">
-      <div className="space-y-3">
-        <h1 className="text-3xl font-semibold tracking-tight">video-ai</h1>
-        <p className="text-muted text-balance">
-          Transcripción con diarización y resumen con referencias temporales, sin esperar a que suba
-          el video.
-        </p>
-      </div>
+  const assets = listMediaAssets();
+  const providers = describeProviders();
+  const simulated = [providers.transcription, providers.summary].filter((p) => !p.real);
 
-      <div className="border-border bg-surface space-y-3 rounded-lg border p-5">
-        <h2 className="font-medium">Fase 1 — spike técnico</h2>
-        <p className="text-muted text-sm">
-          Antes de construir producto hay que validar la hipótesis que sostiene toda la
-          arquitectura: que el navegador puede extraer el audio de un video de varios GB de forma
-          rápida y fiable. El banco de pruebas lo mide sobre archivos reales.
+  return (
+    <main className="mx-auto w-full max-w-3xl flex-1 space-y-8 px-4 py-12">
+      <header className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight">video-ai</h1>
+        <p className="text-muted text-sm text-balance">
+          Sube un video y obtén su transcripción con separación de hablantes y un resumen con
+          referencias al minuto exacto.
         </p>
-        <Link
-          href="/spike"
-          className="bg-accent inline-flex rounded-md px-4 py-2 text-sm font-medium text-white"
-        >
-          Abrir el banco de pruebas
+      </header>
+
+      {simulated.length > 0 && (
+        <div className="border-warning/40 bg-warning/5 space-y-1 rounded-md border px-4 py-3 text-sm">
+          <p className="text-warning font-medium">Ejecutando con proveedores simulados</p>
+          <ul className="text-muted list-inside list-disc text-xs">
+            {simulated.map((provider) => (
+              <li key={provider.hint}>{provider.hint}</li>
+            ))}
+          </ul>
+          <p className="text-muted text-xs">
+            Todo el flujo funciona igual: sólo el contenido del transcript y del resumen es
+            sintético.
+          </p>
+        </div>
+      )}
+
+      <UploadPanel />
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold tracking-wide uppercase">Análisis</h2>
+
+        {assets.length === 0 ? (
+          <p className="text-muted text-sm">Todavía no has analizado ningún video.</p>
+        ) : (
+          <ul className="space-y-2">
+            {assets.map((asset) => (
+              <li key={asset.id}>
+                <Link
+                  href={`/media/${asset.id}`}
+                  className="border-border bg-surface hover:border-accent flex items-center justify-between gap-4 rounded-md border px-4 py-3 transition-colors"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">
+                      {asset.originalFilename}
+                    </span>
+                    <span className="text-muted text-xs">
+                      {asset.durationMs !== null && (
+                        <>{formatDuration(asset.durationMs / 1000)} · </>
+                      )}
+                      {STATE_LABEL[asset.job.state] ?? asset.job.state}
+                    </span>
+                  </span>
+                  <span className="text-muted shrink-0 text-xs">→</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <footer className="border-border border-t pt-6">
+        <Link href="/spike" className="text-muted text-xs hover:underline">
+          Banco de pruebas de extracción (Fase 1)
         </Link>
-      </div>
+      </footer>
     </main>
   );
 }

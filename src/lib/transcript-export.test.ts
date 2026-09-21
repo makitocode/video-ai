@@ -85,6 +85,7 @@ const summary: Summary = {
     },
   ],
   model: 'mock',
+  promptStamp: 'analysis/system@1.0.0',
 };
 
 function context(overrides: Partial<ExportContext> = {}): ExportContext {

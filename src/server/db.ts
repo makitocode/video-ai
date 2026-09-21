@@ -200,6 +200,9 @@ function migrate(db: Database.Database): void {
     ['speakers', 'identified_by', 'text'],
     ['summaries', 'overview', "text not null default '[]'"],
     ['summary_claims', 'topic_id', 'text'],
+    // Con qué redacción de los prompts se produjo el resumen. Sin esto, comparar dos
+    // resultados de la misma grabación es una opinión.
+    ['summaries', 'prompt_stamp', "text not null default ''"],
   ] as const;
 
   for (const [table, column, definition] of columns) {

@@ -29,6 +29,7 @@ a partir de un archivo subido por el usuario (potencialmente de varios GB), prod
 | 10 | [Hoja de ruta](./10-roadmap.md) | Fases, entregables y criterios de salida |
 | 12 | [Versión local](./12-version-local.md) | Cómo funciona la rama `local`, sin nube |
 | 13 | [Costes por video](./13-costes-por-video.md) | Qué cuesta cada grabación y qué modelo usar en cada fase |
+| 14 | [Arquitectura de prompts](./14-arquitectura-de-prompts.md) | Dónde viven los prompts, cómo se versionan y por qué esto es un workflow y no un agente |
 
 ---
 

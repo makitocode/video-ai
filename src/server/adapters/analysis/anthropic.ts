@@ -11,7 +11,7 @@ import {
   type SpeakerIdentificationPayload,
   type TokenUsage,
 } from '@/server/ports/analysis';
-import { ANALYZE_TASK, IDENTIFY_TASK, SHARED_SYSTEM_PROMPT, paragraphsFor } from './prompts';
+import { analyzeTask, identifyTask, paragraphsFor, systemPrompt } from '@/server/prompts';
 
 /**
  * Adaptador de análisis sobre Claude.
@@ -63,7 +63,7 @@ export class AnthropicAnalysisAdapter implements AnalysisPort {
       model: this.models.identify,
       schema: SpeakerIdentificationSchema,
       transcript: input.anchoredTranscript,
-      task: IDENTIFY_TASK(input),
+      task: identifyTask(input),
       maxTokens: 16_000,
       what: 'identificar a los hablantes',
     });
@@ -74,7 +74,7 @@ export class AnthropicAnalysisAdapter implements AnalysisPort {
       model: this.models.analyze,
       schema: AnalysisSchema,
       transcript: input.anchoredTranscript,
-      task: ANALYZE_TASK(input, paragraphsFor(input.durationMs)),
+      task: analyzeTask(input, paragraphsFor(input.durationMs)),
       // Una reunión larga produce bastante texto, y el razonamiento del modelo también
       // consume presupuesto: quedarse corto trunca la respuesta y la invalida entera.
       maxTokens: 32_000,
@@ -96,7 +96,7 @@ export class AnthropicAnalysisAdapter implements AnalysisPort {
         max_tokens: options.maxTokens,
         // System idéntico en las dos fases: es requisito para que el prefijo cacheado
         // sobreviva de una llamada a la otra.
-        system: SHARED_SYSTEM_PROMPT,
+        system: systemPrompt(),
         thinking: { type: 'adaptive' },
         output_config: { effort: 'high', format: zodOutputFormat(options.schema) },
         messages: [

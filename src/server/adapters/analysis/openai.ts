@@ -11,7 +11,7 @@ import {
   type SpeakerIdentificationPayload,
   type TokenUsage,
 } from '@/server/ports/analysis';
-import { ANALYZE_TASK, IDENTIFY_TASK, SHARED_SYSTEM_PROMPT, paragraphsFor } from './prompts';
+import { analyzeTask, identifyTask, paragraphsFor, systemPrompt } from '@/server/prompts';
 
 /**
  * Adaptador de análisis sobre OpenAI.
@@ -46,7 +46,7 @@ export class OpenAiAnalysisAdapter implements AnalysisPort {
       schema: SpeakerIdentificationSchema,
       schemaName: 'speaker_identification',
       transcript: input.anchoredTranscript,
-      task: IDENTIFY_TASK(input),
+      task: identifyTask(input),
       what: 'identificar a los hablantes',
     });
   }
@@ -57,7 +57,7 @@ export class OpenAiAnalysisAdapter implements AnalysisPort {
       schema: AnalysisSchema,
       schemaName: 'meeting_analysis',
       transcript: input.anchoredTranscript,
-      task: ANALYZE_TASK(input, paragraphsFor(input.durationMs)),
+      task: analyzeTask(input, paragraphsFor(input.durationMs)),
       what: 'analizar la reunión',
     });
   }
@@ -74,7 +74,7 @@ export class OpenAiAnalysisAdapter implements AnalysisPort {
       const response = await this.client.responses.parse({
         model: options.model,
         input: [
-          { role: 'system', content: SHARED_SYSTEM_PROMPT },
+          { role: 'system', content: systemPrompt() },
           // El transcript va primero y la instrucción después, igual que en el otro
           // adaptador: la caché de OpenAI funciona por prefijo, así que el contenido
           // estable delante es lo que permite reutilizarlo entre las dos fases.

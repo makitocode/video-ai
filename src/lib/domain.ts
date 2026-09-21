@@ -110,6 +110,13 @@ export type Summary = {
   decisions: SummaryClaim[];
   actionItems: SummaryClaim[];
   model: string;
+  /**
+   * Con qué redacción de los prompts se produjo.
+   *
+   * Se guarda junto al resultado, no en un registro aparte, porque la pregunta que responde
+   * siempre llega mirando un resumen concreto: por qué éste salió distinto de aquél.
+   */
+  promptStamp: string;
 };
 
 /** Lo que costó de verdad una fase del análisis, según lo que reportó el proveedor. */

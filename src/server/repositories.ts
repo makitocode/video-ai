@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from './db';
 import { findSegmentAt } from '@/lib/citation-anchor';
 import { estimateCostMicros } from './pricing';
+import { ANALYSIS_PROMPT_STAMP } from './prompts';
 import type { TokenUsage } from './ports/analysis';
 import type {
   ClaimKind,
@@ -540,9 +541,16 @@ export function saveSummary(
 
     const summaryId = randomUUID();
     db.prepare(
-      `insert into summaries (id, media_asset_id, headline, overview, model)
-       values (?, ?, ?, ?, ?)`,
-    ).run(summaryId, assetId, input.headline, JSON.stringify(input.overview), input.model);
+      `insert into summaries (id, media_asset_id, headline, overview, model, prompt_stamp)
+       values (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      summaryId,
+      assetId,
+      input.headline,
+      JSON.stringify(input.overview),
+      input.model,
+      ANALYSIS_PROMPT_STAMP,
+    );
 
     const insertTopic = db.prepare(
       `insert into summary_topics (id, summary_id, title, start_ms, end_ms, order_idx)
@@ -616,8 +624,12 @@ export function saveSummary(
 export function getSummary(assetId: string): Summary | null {
   const db = getDb();
   const summary = db
-    .prepare('select id, headline, overview, model from summaries where media_asset_id = ?')
-    .get(assetId) as { id: string; headline: string; overview: string; model: string } | undefined;
+    .prepare(
+      'select id, headline, overview, model, prompt_stamp from summaries where media_asset_id = ?',
+    )
+    .get(assetId) as
+    | { id: string; headline: string; overview: string; model: string; prompt_stamp: string }
+    | undefined;
 
   if (summary === undefined) return null;
 
@@ -679,6 +691,7 @@ export function getSummary(assetId: string): Summary | null {
     decisions: claims.filter((claim) => claim.kind === 'decision').map(toClaim),
     actionItems: claims.filter((claim) => claim.kind === 'action_item').map(toClaim),
     model: summary.model,
+    promptStamp: summary.prompt_stamp,
   };
 }
 

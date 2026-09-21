@@ -216,4 +216,31 @@ function migrate(db: Database.Database): void {
 
     db.exec(`alter table ${table} add column ${column} ${definition}`);
   }
+
+  backfillSpeakersIdentifiedAt(db);
+}
+
+/**
+ * Rellena la marca de identificación en los transcripts anteriores a que existiera.
+ *
+ * Sin esto, una grabación ya identificada aparecería como pendiente y la interfaz ofrecería
+ * pagar esa fase por segunda vez. Que un cambio de esquema haga gastar dinero otra vez es
+ * justo lo que una migración tiene que evitar.
+ *
+ * La señal disponible es que algún hablante tenga nombre puesto por el modelo. No es perfecta
+ * —una identificación que no encontró ninguna pista no dejó rastro— pero se equivoca del lado
+ * correcto: en el peor caso ofrece repetir una fase que no dio resultado, nunca oculta una que
+ * sí lo dio.
+ */
+function backfillSpeakersIdentifiedAt(db: Database.Database): void {
+  db.exec(`
+    update transcripts
+       set speakers_identified_at = coalesce(speakers_identified_at, created_at)
+     where speakers_identified_at is null
+       and exists (
+         select 1 from speakers
+          where speakers.transcript_id = transcripts.id
+            and speakers.identified_by = 'model'
+       )
+  `);
 }

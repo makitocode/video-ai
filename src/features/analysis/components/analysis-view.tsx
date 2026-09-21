@@ -83,17 +83,23 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
   /**
    * Relanza el análisis sin volver a subir nada.
    *
-   * Una transcripción de dos horas tarda media hora larga; si falla al final, repetir la
-   * subida del video sería un castigo desproporcionado. El audio ya está en el servidor, así
-   * que el reintento arranca directamente desde la transcripción.
+   * Cubre dos casos que comparten la misma necesidad: un análisis que falló, y uno que
+   * terminó con el proveedor simulado y hay que rehacer con el real. En ambos, repetir la
+   * subida de un video de gigas sería un castigo desproporcionado: el audio ya está en el
+   * servidor, así que el trabajo arranca directamente desde la transcripción.
    */
-  const retryAnalysis = useCallback(async () => {
-    await fetch(`/api/media/${initial.id}/analyze`, {
+  const reanalyze = useCallback(async () => {
+    const response = await fetch(`/api/media/${initial.id}/analyze`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ durationMs: asset.durationMs ?? 0 }),
     });
-    void refresh();
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(payload.error ?? 'No se pudo relanzar el análisis.');
+    }
+    await refresh();
   }, [initial.id, asset.durationMs, refresh]);
 
   const mediaSource = asset.hasSource
@@ -119,14 +125,14 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
 
       {/* Antes que nada: si el transcript no salió del audio del usuario, hay que decirlo
           donde no se pueda pasar por alto. */}
-      {transcript?.provider === 'mock' && <SimulatedTranscriptBanner />}
+      {transcript?.provider === 'mock' && <SimulatedTranscriptBanner onReanalyze={reanalyze} />}
 
       {status.state !== 'ready' && (
         <StageBanner
           state={status.state}
           progress={status.progress}
           error={status.lastError}
-          onRetry={() => void retryAnalysis()}
+          onRetry={() => void reanalyze()}
         />
       )}
 

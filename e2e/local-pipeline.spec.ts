@@ -150,6 +150,10 @@ test.describe('pipeline local', () => {
     });
     await expect(page.locator('[role="alert"]').filter({ hasText: 'simulada' })).toHaveCount(1);
 
+    // El aviso incluye la salida: relanzar sin volver a subir el video, que es lo que
+    // hace falta justo después de configurar la clave.
+    await expect(page.getByRole('button', { name: /volver a analizar/i })).toBeVisible();
+
     // Y el propio texto del transcript debe identificarse, porque se exporta y se copia
     // fuera de la aplicación, donde el aviso de la interfaz ya no acompaña.
     const assetId = page.url().split('/').pop() ?? '';

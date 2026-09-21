@@ -30,8 +30,11 @@ function splitList(raw: string | undefined): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-const assemblyAiKey = process.env.ASSEMBLYAI_API_KEY?.trim();
-const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
+// `|| undefined` y no `?.trim()` a secas: una variable presente pero vacía tiene que
+// comportarse igual que una ausente. Si no, se intentaría autenticar con una cadena vacía
+// y el error sería un 401 críptico en vez del aviso de proveedor simulado.
+const assemblyAiKey = process.env.ASSEMBLYAI_API_KEY?.trim() || undefined;
+const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() || undefined;
 
 export const config = {
   /** `mock` no requiere clave y produce un transcript diarizado sintético coherente. */

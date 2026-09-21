@@ -92,6 +92,25 @@ Las decisiones que importan siguen en pie, porque no dependían de la nube:
 5. **El transcript es entrada no confiable** para el LLM: va delimitado como datos, la salida
    es estructurada y validada, y el pipeline de resumen no tiene herramientas ni red.
 
+## Exportación del transcript
+
+`GET /api/media/{id}/export?format=txt|srt|vtt|md`
+
+Se genera en el servidor y no en el cliente a propósito: así la descarga es un enlace normal
+—funciona con «guardar enlace como» y con `curl`, y el nombre del archivo lo fija el
+servidor— en vez de depender de construir un Blob en JavaScript.
+
+El contenido se calcula en cada petición y no se cachea, de modo que renombrar un hablante se
+refleja en la siguiente descarga sin invalidar nada.
+
+Los formatos viven en `lib/transcript-export.ts` como funciones puras y están cubiertos por
+tests: el separador de milisegundos de SubRip (coma) frente al de WebVTT (punto) es de esas
+cosas que fallan en silencio y sólo se notan cuando otro programa rechaza el archivo.
+
+**Agrupado**: texto plano y Markdown funden los turnos seguidos del mismo hablante, porque se
+leen mejor. SubRip y WebVTT **no** lo hacen: fundirlos produciría bloques de medio minuto,
+inservibles como subtítulos.
+
 ## Qué se pierde respecto a la versión en la nube
 
 Diferencias asumidas a propósito, no olvidos:

@@ -10,12 +10,9 @@
  * perder granularidad, porque la marca que importa es la del inicio de la intervención.
  */
 
-export type AnchorableSegmentInput = {
-  startMs: number;
-  endMs: number;
-  speakerLabel: string;
-  text: string;
-};
+import { groupConsecutiveTurns, type SpeakerTurn } from './transcript-turns';
+
+export type AnchorableSegmentInput = SpeakerTurn;
 
 /** Formatea milisegundos como `hh:mm:ss.mmm`, el formato que el prompt pide copiar. */
 export function formatAnchor(totalMs: number): string {
@@ -30,22 +27,7 @@ export function formatAnchor(totalMs: number): string {
 }
 
 export function buildAnchoredTranscript(segments: readonly AnchorableSegmentInput[]): string {
-  const grouped: AnchorableSegmentInput[] = [];
-
-  for (const segment of segments) {
-    const previous = grouped[grouped.length - 1];
-
-    if (previous !== undefined && previous.speakerLabel === segment.speakerLabel) {
-      // Se conserva el inicio del primer turno del bloque: es el ancla que el modelo citará.
-      previous.endMs = segment.endMs;
-      previous.text = `${previous.text} ${segment.text}`.trim();
-      continue;
-    }
-
-    grouped.push({ ...segment });
-  }
-
-  return grouped
-    .map((segment) => `[${formatAnchor(segment.startMs)}] ${segment.speakerLabel}: ${segment.text}`)
+  return groupConsecutiveTurns(segments)
+    .map((turn) => `[${formatAnchor(turn.startMs)}] ${turn.speakerLabel}: ${turn.text}`)
     .join('\n');
 }

@@ -10,6 +10,8 @@ Sube un video y obtén:
 - **Transcripción con diarización** — quién dice qué y cuándo, detectando el idioma solo.
 - **Resumen con referencias temporales** — cada afirmación lleva un `mm:ss` clicable que salta
   al momento que la respalda.
+- **Descarga en cuatro formatos** — texto plano, SubRip (`.srt`), WebVTT (`.vtt`) y Markdown
+  con el resumen incluido.
 
 ---
 
@@ -67,6 +69,24 @@ extracción de audio (WebCodecs)
                                        │                        LLM (resumen)
   video original (segundo plano)       │
   ◀── progreso por SSE ────────────────┘
+```
+
+## Exportar la transcripción
+
+Desde la vista de análisis, el botón **Descargar**:
+
+| Formato                  | Para qué sirve                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- |
+| **Texto plano** (`.txt`) | Leer o pegar en cualquier sitio. Agrupa los turnos seguidos del mismo hablante                        |
+| **SubRip** (`.srt`)      | El formato de transcript más compatible: editores de video, reproductores, herramientas de subtítulos |
+| **WebVTT** (`.vtt`)      | Estándar web; se carga como pista de subtítulos en un `<video>`                                       |
+| **Markdown** (`.md`)     | El resumen con sus citas más el transcript completo. Para compartir o archivar la reunión             |
+
+Se generan en el momento, no se guardan: si renombras un hablante, la siguiente descarga ya
+lleva el nombre nuevo. También se pueden pedir directamente:
+
+```bash
+curl -OJ "http://localhost:3000/api/media/<id>/export?format=srt"
 ```
 
 ## Comandos

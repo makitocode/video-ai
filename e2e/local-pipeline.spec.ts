@@ -76,4 +76,68 @@ test.describe('pipeline local', () => {
     await expect(speakerList.getByRole('listitem').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('log', { name: 'Transcripción' })).toBeVisible();
   });
+
+  test('descarga la transcripción en todos los formatos', async ({ page }) => {
+    const fixture = createWavFixture({ seconds: 45 });
+
+    await page.goto('/');
+    await page.setInputFiles('input[type="file"]', fixture);
+    await page.waitForURL(/\/media\/([0-9a-f-]+)$/, { timeout: 60_000 });
+
+    const assetId = page.url().split('/').pop() ?? '';
+    const speakerList = page.getByRole('list', { name: 'Hablantes detectados' });
+    await expect(speakerList.getByRole('listitem').first()).toBeVisible({ timeout: 60_000 });
+
+    // El nombre que pone el usuario debe llegar a las descargas: se comprueba renombrando
+    // antes de exportar.
+    await speakerList.getByRole('button', { name: 'Speaker A', exact: true }).click();
+    await page.getByRole('textbox', { name: /Nombre para Speaker A/i }).fill('María');
+    await page.keyboard.press('Enter');
+    await expect(speakerList.getByRole('button', { name: 'María', exact: true })).toBeVisible();
+
+    // --- Texto plano ---
+    const txt = await page.request.get(`/api/media/${assetId}/export?format=txt`);
+    expect(txt.ok()).toBe(true);
+    expect(txt.headers()['content-disposition']).toContain('attachment');
+    const txtBody = await txt.text();
+    expect(txtBody).toContain('Transcripción —');
+    expect(txtBody).toContain('María');
+    expect(txtBody).not.toContain('Speaker A');
+
+    // --- SubRip ---
+    const srt = await page.request.get(`/api/media/${assetId}/export?format=srt`);
+    expect(srt.ok()).toBe(true);
+    const srtBody = await srt.text();
+    // Estructura mínima que otro programa espera encontrar: número, tiempos con coma, texto.
+    expect(srtBody).toMatch(/^1\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}\n/);
+    expect(srtBody).toContain('María: ');
+
+    // --- WebVTT ---
+    const vtt = await page.request.get(`/api/media/${assetId}/export?format=vtt`);
+    expect(vtt.ok()).toBe(true);
+    const vttBody = await vtt.text();
+    expect(vttBody.startsWith('WEBVTT')).toBe(true);
+    expect(vttBody).toContain('<v María>');
+    expect(vttBody).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3} --> /);
+
+    // --- Markdown, con el resumen incluido ---
+    await expect(page.getByText('Puntos clave')).toBeVisible({ timeout: 90_000 });
+    const md = await page.request.get(`/api/media/${assetId}/export?format=md`);
+    expect(md.ok()).toBe(true);
+    const mdBody = await md.text();
+    expect(mdBody).toContain('## Resumen');
+    expect(mdBody).toContain('## Transcripción');
+
+    // --- El enlace de la interfaz apunta al mismo sitio ---
+    await page.getByRole('group').filter({ hasText: 'Descargar' }).getByText('Descargar').click();
+    const srtLink = page.getByRole('link', { name: /SubRip/ });
+    await expect(srtLink).toHaveAttribute('href', `/api/media/${assetId}/export?format=srt`);
+    await expect(srtLink).toHaveAttribute('download', '');
+  });
+
+  test('rechaza una descarga en formato desconocido', async ({ page }) => {
+    await page.goto('/');
+    const response = await page.request.get('/api/media/no-existe/export?format=exe');
+    expect(response.status()).toBe(400);
+  });
 });

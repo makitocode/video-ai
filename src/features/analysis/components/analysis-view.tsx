@@ -7,6 +7,7 @@ import type { JobState, MediaAssetDetail } from '@/lib/domain';
 import { findActiveSegmentIndex } from '../active-segment';
 import { useJobStream } from '../use-job-stream';
 import { useMediaSync } from '../use-media-sync';
+import { ExportMenu } from './export-menu';
 import { SpeakerList } from './speaker-list';
 import { SpeakerTimeline } from './speaker-timeline';
 import { SummaryPanel } from './summary-panel';
@@ -130,16 +131,21 @@ export function AnalysisView({ initial }: { initial: MediaAssetDetail }) {
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold tracking-wide uppercase">Transcripción</h2>
-            <label className="text-muted flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={followPlayback}
-                onChange={(event) => setFollowPlayback(event.target.checked)}
-              />
-              Seguir la reproducción
-            </label>
+
+            <div className="flex items-center gap-3">
+              <label className="text-muted flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={followPlayback}
+                  onChange={(event) => setFollowPlayback(event.target.checked)}
+                />
+                Seguir la reproducción
+              </label>
+              {/* Sólo hay algo que descargar cuando la transcripción existe. */}
+              {transcript !== null && <ExportMenu assetId={asset.id} />}
+            </div>
           </div>
 
           {transcript === null ? (

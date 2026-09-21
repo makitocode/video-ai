@@ -15,6 +15,33 @@ import type { TranscribeInput, TranscriptionProvider, TranscriptionResult } from
 
 const API_BASE = 'https://api.assemblyai.com/v2';
 
+/**
+ * Modelos por defecto, en orden de preferencia.
+ *
+ * `speech_models` es una **lista de reserva ordenada**, no ejecución en paralelo: se intenta
+ * el primero y, si no está disponible para la cuenta, se cae al siguiente. Un transcript lo
+ * produce exactamente un modelo.
+ *
+ * Enviarlo es importante: **si se omite, la API usa `universal-3-pro` por defecto**, no el
+ * modelo insignia. `universal-3-5-pro` transcribe 18 idiomas de forma nativa —español
+ * incluido— y para el resto cae solo a `universal-2`, que cubre 99.
+ */
+export const DEFAULT_SPEECH_MODELS = ['universal-3-5-pro', 'universal-2'] as const;
+
+export type AssemblyAiOptions = {
+  /** Idioma fijado. Si es `undefined`, se le pide al proveedor que lo detecte. */
+  languageCode: string | undefined;
+  /** Lista de reserva ordenada de modelos. */
+  speechModels: readonly string[];
+  /**
+   * Descripción en lenguaje natural del audio: dominio, escenario, nombres propios.
+   * Mejora notablemente la precisión sobre jerga y nombres que el modelo no conoce.
+   */
+  prompt: string | undefined;
+  /** Vocabulario específico: nombres de personas, productos, siglas. Hasta 1.000 frases. */
+  keyterms: readonly string[];
+};
+
 /** Cadencia de sondeo. AssemblyAI tarda en torno al 20-25 % de la duración del audio. */
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLL_ATTEMPTS = 1_200; // ~1 hora de margen
@@ -27,6 +54,8 @@ type TranscriptResponse = {
   error?: string | null;
   language_code?: string | null;
   language_confidence?: number | null;
+  /** Qué modelo produjo realmente el transcript, tras aplicar la lista de reserva. */
+  speech_model?: string | null;
   audio_duration?: number | null;
   utterances?: Array<{
     start: number;
@@ -43,8 +72,7 @@ export class AssemblyAiTranscriptionProvider implements TranscriptionProvider {
 
   constructor(
     private readonly apiKey: string,
-    /** Idioma fijado. Si es `undefined`, se le pide al proveedor que lo detecte. */
-    private readonly languageCode: string | undefined,
+    private readonly options: AssemblyAiOptions,
   ) {}
 
   private get headers(): Record<string, string> {
@@ -87,13 +115,17 @@ export class AssemblyAiTranscriptionProvider implements TranscriptionProvider {
       headers: { ...this.headers, 'content-type': 'application/json' },
       body: JSON.stringify({
         audio_url: audioUrl,
+        // Sin esto la API usa su modelo por defecto en vez del insignia.
+        speech_models: this.options.speechModels,
         // Las dos capacidades que definen el producto, en la misma petición.
         speaker_labels: true,
         // Detección automática sólo si no se fijó el idioma: los dos parámetros son
         // mutuamente excluyentes, y fijarlo es más fiable cuando ya se sabe cuál es.
-        ...(this.languageCode === undefined
+        ...(this.options.languageCode === undefined
           ? { language_detection: true }
-          : { language_code: this.languageCode }),
+          : { language_code: this.options.languageCode }),
+        ...(this.options.prompt === undefined ? {} : { prompt: this.options.prompt }),
+        ...(this.options.keyterms.length === 0 ? {} : { keyterms_prompt: this.options.keyterms }),
       }),
     });
 
@@ -146,7 +178,7 @@ export class AssemblyAiTranscriptionProvider implements TranscriptionProvider {
       return {
         languageCode: payload.language_code ?? 'und',
         languageConfidence: payload.language_confidence ?? null,
-        modelVersion: 'assemblyai',
+        modelVersion: payload.speech_model ?? 'assemblyai',
         speakers: [{ label: 'Speaker A', totalSpeakingMs: durationMs }],
         segments: [
           { startMs: 0, endMs: durationMs, speakerLabel: 'Speaker A', text, confidence: null },
@@ -170,7 +202,7 @@ export class AssemblyAiTranscriptionProvider implements TranscriptionProvider {
     return {
       languageCode: payload.language_code ?? 'und',
       languageConfidence: payload.language_confidence ?? null,
-      modelVersion: 'assemblyai',
+      modelVersion: payload.speech_model ?? 'assemblyai',
       speakers: [...speakingMs.entries()].map(([label, totalSpeakingMs]) => ({
         label,
         totalSpeakingMs,

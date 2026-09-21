@@ -31,11 +31,13 @@ proveedores simulados y todo el flujo funciona de principio a fin.
 cp .env.example .env.local
 ```
 
-| Variable                 | Qué activa                                 | Coste aproximado            |
-| ------------------------ | ------------------------------------------ | --------------------------- |
-| `ASSEMBLYAI_API_KEY`     | Transcripción y diarización reales         | ~0,20 USD por hora de video |
-| `ANTHROPIC_API_KEY`      | Resumen real con Claude                    | ~0,10 USD por cada 2 h      |
-| `TRANSCRIPTION_LANGUAGE` | Fija el idioma (`es`) en vez de detectarlo | —                           |
+| Variable                 | Qué activa                                      | Coste aproximado            |
+| ------------------------ | ----------------------------------------------- | --------------------------- |
+| `ASSEMBLYAI_API_KEY`     | Transcripción y diarización reales              | ~0,20 USD por hora de video |
+| `ANTHROPIC_API_KEY`      | Resumen real con Claude                         | ~0,10 USD por cada 2 h      |
+| `TRANSCRIPTION_LANGUAGE` | Fija el idioma (`es`) en vez de detectarlo      | —                           |
+| `TRANSCRIPTION_PROMPT`   | Describe la grabación para mejorar la precisión | —                           |
+| `TRANSCRIPTION_KEYTERMS` | Nombres propios y jerga, separados por comas    | —                           |
 
 Definir la clave es lo único necesario; no hay ningún otro interruptor.
 

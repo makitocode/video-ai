@@ -22,6 +22,14 @@ export function ensureDataDirs(): void {
   mkdirSync(MEDIA_DIR, { recursive: true });
 }
 
+/** Lee una variable separada por comas y la deja limpia de espacios y entradas vacías. */
+function splitList(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 const assemblyAiKey = process.env.ASSEMBLYAI_API_KEY?.trim();
 const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
 
@@ -38,6 +46,26 @@ export const config = {
    * en otro idioma, y un idioma mal detectado arruina el transcript entero.
    */
   transcriptionLanguage: process.env.TRANSCRIPTION_LANGUAGE?.trim() || undefined,
+
+  /**
+   * Modelos de transcripción, del preferido al de reserva.
+   *
+   * Es una lista ordenada: se intenta el primero y se cae al siguiente si no está disponible.
+   * Sólo se toca para probar un modelo nuevo o volver a uno anterior.
+   */
+  speechModels: splitList(process.env.ASSEMBLYAI_SPEECH_MODELS),
+
+  /**
+   * Descripción del audio en lenguaje natural: dominio, escenario, de qué va la reunión.
+   *
+   * Es la palanca de precisión más rentable que existe sobre grabaciones reales. El modelo
+   * usa esta descripción para desambiguar jerga y nombres propios que de otro modo
+   * transcribiría mal.
+   */
+  transcriptionPrompt: process.env.TRANSCRIPTION_PROMPT?.trim() || undefined,
+
+  /** Vocabulario exacto: nombres de personas, empresas, productos, siglas. */
+  transcriptionKeyterms: splitList(process.env.TRANSCRIPTION_KEYTERMS),
 
   summary: anthropicKey ? ('anthropic' as const) : ('mock' as const),
   anthropicKey,
